@@ -98,7 +98,7 @@ Do not rewrite Member 2's entailment code.
 Use:
 
 ```text
-feature/word-overlap
+word-overlap
 ```
 
 Before work:
@@ -106,7 +106,7 @@ Before work:
 ```bash
 git checkout develop
 git pull origin develop
-git checkout feature/word-overlap
+git checkout word-overlap
 git merge develop
 ```
 
@@ -600,7 +600,7 @@ Before PR:
 ```bash
 git checkout develop
 git pull origin develop
-git checkout feature/word-overlap
+git checkout word-overlap
 git merge develop
 ```
 

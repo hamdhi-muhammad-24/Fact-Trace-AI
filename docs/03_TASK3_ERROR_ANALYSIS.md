@@ -128,7 +128,7 @@ For each example:
 Use:
 
 ```text
-feature/error-analysis
+error-analysis
 ```
 
 Member 3 should avoid editing Part 1/Part 2 core code unless specifically agreed.

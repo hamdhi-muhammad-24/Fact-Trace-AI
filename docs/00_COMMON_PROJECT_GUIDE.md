@@ -627,9 +627,9 @@ main
 │
 └── develop
     │
-    ├── feature/word-overlap
-    ├── feature/entailment
-    └── feature/error-analysis
+    ├── word-overlap
+    ├── entailment
+    └── error-analysis
 ```
 
 This Git structure is our team recommendation, not a coursework requirement.
@@ -707,21 +707,21 @@ git pull origin develop
 Then Member 1:
 
 ```bash
-git checkout feature/word-overlap
+git checkout word-overlap
 git merge develop
 ```
 
 Member 2:
 
 ```bash
-git checkout feature/entailment
+git checkout entailment
 git merge develop
 ```
 
 Member 3:
 
 ```bash
-git checkout feature/error-analysis
+git checkout error-analysis
 git merge develop
 ```
 

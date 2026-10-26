@@ -110,7 +110,7 @@ Do not rewrite Member 1's Word Overlap code without agreement.
 Use:
 
 ```text
-feature/entailment
+entailment
 ```
 
 Before work:
@@ -118,7 +118,7 @@ Before work:
 ```bash
 git checkout develop
 git pull origin develop
-git checkout feature/entailment
+git checkout entailment
 git merge develop
 ```
 
@@ -589,7 +589,7 @@ Before PR:
 ```bash
 git checkout develop
 git pull origin develop
-git checkout feature/entailment
+git checkout entailment
 git merge develop
 ```
 
