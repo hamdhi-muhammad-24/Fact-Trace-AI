@@ -18,8 +18,10 @@ from nltk.stem import PorterStemmer
 # Safe optional import of matplotlib for plotting
 try:
     import matplotlib
+
     matplotlib.use("Agg")  # Non-interactive backend for headless saving
     import matplotlib.pyplot as plt
+
     _HAS_MATPLOTLIB = True
 except ImportError:
     _HAS_MATPLOTLIB = False
@@ -34,12 +36,16 @@ except LookupError:
 _STEMMER = PorterStemmer()
 
 
-# ==========================================
+# _______________________________________________
+
 # Task 1: Preprocessing Helpers
-# ==========================================
+# _______________________________________________
+
 
 # Tokenization and normalization
-def tokenize_and_preprocess(text: str, remove_stopwords: bool = True, stem: bool = True) -> List[str]:
+def tokenize_and_preprocess(
+    text: str, remove_stopwords: bool = True, stem: bool = True
+) -> List[str]:
     # Extract alphanumeric words and lowercase
     tokens = re.findall(r"\b[a-zA-Z0-9]+\b", text.lower())
     # Filter stopwords
@@ -57,12 +63,16 @@ def extract_numbers(text: str) -> Set[str]:
     return set(w for w in raw_tokens if any(c.isdigit() for c in w))
 
 
-# ==========================================
+# _______________________________________________
+
 # Task 1: Word Overlap Scoring
-# ==========================================
+# _______________________________________________
+
 
 # Compute word recall score between a fact and a single passage
-def compute_word_overlap_score(fact: str, passage: str, number_penalty: float = 0.5) -> float:
+def compute_word_overlap_score(
+    fact: str, passage: str, number_penalty: float = 0.5
+) -> float:
     fact_tokens = tokenize_and_preprocess(fact)
     if not fact_tokens:
         return 0.0
@@ -85,16 +95,23 @@ def compute_word_overlap_score(fact: str, passage: str, number_penalty: float = 
 
 
 # Compute maximum word overlap score across all retrieved passages for a fact
-def compute_fact_passages_overlap(fact: str, passages: List[dict], number_penalty: float = 0.5) -> float:
+def compute_fact_passages_overlap(
+    fact: str, passages: List[dict], number_penalty: float = 0.5
+) -> float:
     if not passages:
         return 0.0
-    scores = [compute_word_overlap_score(fact, p.get("text", ""), number_penalty) for p in passages]
+    scores = [
+        compute_word_overlap_score(fact, p.get("text", ""), number_penalty)
+        for p in passages
+    ]
     return max(scores) if scores else 0.0
 
 
-# ==========================================
+# _______________________________________________
+
 # Starter Classes & Framework Data Structures
-# ==========================================
+# _______________________________________________
+
 
 class FactExample(object):
     """
@@ -106,13 +123,21 @@ class FactExample(object):
     label for prediction, so your model should just predict S or NS, but we leave it here so you can look at the
     raw data.
     """
+
     def __init__(self, fact: str, passages: List[dict], label: str):
         self.fact = fact
         self.passages = passages
         self.label = label
 
     def __repr__(self):
-        return repr("fact=" + repr(self.fact) + "; label=" + repr(self.label) + "; passages=" + repr(self.passages))
+        return repr(
+            "fact="
+            + repr(self.fact)
+            + "; label="
+            + repr(self.label)
+            + "; passages="
+            + repr(self.passages)
+        )
 
 
 class EntailmentModel(object):
@@ -124,7 +149,9 @@ class EntailmentModel(object):
     def check_entailment(self, premise: str, hypothesis: str):
         with torch.no_grad():
             # Tokenize premise and hypothesis
-            inputs = self.tokenizer(premise, hypothesis, return_tensors="pt", truncation=True, padding=True)
+            inputs = self.tokenizer(
+                premise, hypothesis, return_tensors="pt", truncation=True, padding=True
+            )
             if self.cuda:
                 inputs = {key: value.to("cuda") for key, value in inputs.items()}
             outputs = self.model(**inputs)
@@ -144,6 +171,7 @@ class FactChecker(object):
     """
     Fact checker base type
     """
+
     def predict(self, fact: str, passages: List[dict]) -> str:
         raise Exception("Don't call me, call my subclasses")
 
@@ -192,7 +220,18 @@ class DependencyRecallThresholdFactChecker(FactChecker):
         processed_sent = self.nlp(sent)
         relations = set()
         for token in processed_sent:
-            ignore_dep = ["punct", "ROOT", "root", "det", "case", "aux", "auxpass", "dep", "cop", "mark"]
+            ignore_dep = [
+                "punct",
+                "ROOT",
+                "root",
+                "det",
+                "case",
+                "aux",
+                "auxpass",
+                "dep",
+                "cop",
+                "mark",
+            ]
             if token.is_punct or token.dep_ in ignore_dep:
                 continue
             head = token.head.lemma_ if token.head.pos_ == "VERB" else token.head.text
@@ -201,13 +240,17 @@ class DependencyRecallThresholdFactChecker(FactChecker):
         return relations
 
 
-# ==========================================
+# _______________________________________________
+
 # Self-Contained Analysis & Verification Runner
-# ==========================================
+# _______________________________________________
+
 
 # Data loader helper for analysis
-def load_dataset(dev_path: str = "data/dev_labeled_ChatGPT.jsonl",
-                 passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl"):
+def load_dataset(
+    dev_path: str = "data/dev_labeled_ChatGPT.jsonl",
+    passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",
+):
     # Load passages dictionary
     passages_dict = {}
     with open(passages_path, "r", encoding="utf-8") as f:
@@ -230,12 +273,14 @@ def load_dataset(dev_path: str = "data/dev_labeled_ChatGPT.jsonl",
                         # IR is mapped to NS during 2-class evaluation
                         gold = "NS" if raw_lbl == "IR" else raw_lbl
                         p_list = passages_dict.get(text, [])
-                        examples.append({
-                            "fact": text,
-                            "passages": p_list,
-                            "label": gold,
-                            "raw_label": raw_lbl
-                        })
+                        examples.append(
+                            {
+                                "fact": text,
+                                "passages": p_list,
+                                "label": gold,
+                                "raw_label": raw_lbl,
+                            }
+                        )
     return dev_docs, examples
 
 
@@ -258,26 +303,40 @@ def run_eda(dev_docs, examples):
     binary_counts = Counter(ex["label"] for ex in examples)
     print("\nOriginal 3-Class Label Counts:")
     for lbl in ["S", "NS", "IR"]:
-        print(f"  - {lbl:<2} : {raw_counts[lbl]:>3} ({raw_counts[lbl]/total_facts:.1%})")
+        print(
+            f"  - {lbl:<2} : {raw_counts[lbl]:>3} ({raw_counts[lbl] / total_facts:.1%})"
+        )
 
     print("\nBinary Converted Labels (IR -> NS):")
     for lbl in ["S", "NS"]:
-        print(f"  - {lbl:<2} : {binary_counts[lbl]:>3} ({binary_counts[lbl]/total_facts:.1%})")
+        print(
+            f"  - {lbl:<2} : {binary_counts[lbl]:>3} ({binary_counts[lbl] / total_facts:.1%})"
+        )
 
     # 3. Length statistics and asymmetry
     fact_lengths = [len(ex["fact"].split()) for ex in examples]
     passage_counts = [len(ex["passages"]) for ex in examples]
-    passage_lengths = [len(p.get("text", "").split()) for ex in examples for p in ex["passages"]]
+    passage_lengths = [
+        len(p.get("text", "").split()) for ex in examples for p in ex["passages"]
+    ]
 
     avg_f_len = sum(fact_lengths) / len(fact_lengths)
     avg_p_count = sum(passage_counts) / len(passage_counts)
     avg_p_len = sum(passage_lengths) / len(passage_lengths) if passage_lengths else 0.0
 
     print("\nLength Statistics & Asymmetry Analysis:")
-    print(f"  - Fact Length (words)    : Mean = {avg_f_len:.2f}, Min = {min(fact_lengths)}, Max = {max(fact_lengths)}")
-    print(f"  - Passages per Fact      : Mean = {avg_p_count:.2f}, Min = {min(passage_counts)}, Max = {max(passage_counts)}")
-    print(f"  - Passage Length (words) : Mean = {avg_p_len:.2f}, Min = {min(passage_lengths)}, Max = {max(passage_lengths)}")
-    print(f"  - Length Asymmetry Ratio : Passages are ~{avg_p_len/avg_f_len:.1f}x longer than claims")
+    print(
+        f"  - Fact Length (words)    : Mean = {avg_f_len:.2f}, Min = {min(fact_lengths)}, Max = {max(fact_lengths)}"
+    )
+    print(
+        f"  - Passages per Fact      : Mean = {avg_p_count:.2f}, Min = {min(passage_counts)}, Max = {max(passage_counts)}"
+    )
+    print(
+        f"  - Passage Length (words) : Mean = {avg_p_len:.2f}, Min = {min(passage_lengths)}, Max = {max(passage_lengths)}"
+    )
+    print(
+        f"  - Length Asymmetry Ratio : Passages are ~{avg_p_len / avg_f_len:.1f}x longer than claims"
+    )
 
     # 4. Data quality and conflict detection
     fact_texts = [ex["fact"] for ex in examples]
@@ -289,21 +348,35 @@ def run_eda(dev_docs, examples):
     print(f"  - Duplicate fact strings   : {len(duplicates)}")
     for d_text in duplicates:
         instances = [ex for ex in examples if ex["fact"] == d_text]
-        labels = [f"Raw: {ex['raw_label']} -> Binary: {ex['label']}" for ex in instances]
-        print(f"    * Text: \"{d_text}\"")
+        labels = [
+            f"Raw: {ex['raw_label']} -> Binary: {ex['label']}" for ex in instances
+        ]
+        print(f'    * Text: "{d_text}"')
         print(f"      Labels across annotations: {labels}")
 
     # 5. Deep Class & Entity Breakdown
     s_lens = [len(ex["fact"].split()) for ex in examples if ex["label"] == "S"]
     ns_lens = [len(ex["fact"].split()) for ex in examples if ex["label"] == "NS"]
-    s_has_num = [bool(extract_numbers(ex["fact"])) for ex in examples if ex["label"] == "S"]
-    ns_has_num = [bool(extract_numbers(ex["fact"])) for ex in examples if ex["label"] == "NS"]
+    s_has_num = [
+        bool(extract_numbers(ex["fact"])) for ex in examples if ex["label"] == "S"
+    ]
+    ns_has_num = [
+        bool(extract_numbers(ex["fact"])) for ex in examples if ex["label"] == "NS"
+    ]
 
     print("\nDeep Class & Entity Breakdown:")
-    print(f"  - Supported Fact Length     : Mean = {sum(s_lens)/len(s_lens):.2f} words (Min = {min(s_lens)}, Max = {max(s_lens)})")
-    print(f"  - Not Supported Fact Length : Mean = {sum(ns_lens)/len(ns_lens):.2f} words (Min = {min(ns_lens)}, Max = {max(ns_lens)})")
-    print(f"  - Supported Facts with Numbers/Dates     : {sum(s_has_num)} ({sum(s_has_num)/len(s_lens):.1%})")
-    print(f"  - Not Supported Facts with Numbers/Dates : {sum(ns_has_num)} ({sum(ns_has_num)/len(ns_lens):.1%})")
+    print(
+        f"  - Supported Fact Length     : Mean = {sum(s_lens) / len(s_lens):.2f} words (Min = {min(s_lens)}, Max = {max(s_lens)})"
+    )
+    print(
+        f"  - Not Supported Fact Length : Mean = {sum(ns_lens) / len(ns_lens):.2f} words (Min = {min(ns_lens)}, Max = {max(ns_lens)})"
+    )
+    print(
+        f"  - Supported Facts with Numbers/Dates     : {sum(s_has_num)} ({sum(s_has_num) / len(s_lens):.1%})"
+    )
+    print(
+        f"  - Not Supported Facts with Numbers/Dates : {sum(ns_has_num)} ({sum(ns_has_num) / len(ns_lens):.1%})"
+    )
 
     # Save visual EDA figures
     save_eda_plots(examples)
@@ -329,7 +402,7 @@ def evaluate_checker(name: str, checker: FactChecker, examples: List[dict]):
     f1_ns = 2 * prec_ns * rec_ns / (prec_ns + rec_ns) if (prec_ns + rec_ns) > 0 else 0.0
 
     print(f"\n--- Model: {name} ---")
-    print(f"Accuracy : {tp + tn}/{len(labels)} = {acc*100:.2f}%")
+    print(f"Accuracy : {tp + tn}/{len(labels)} = {acc * 100:.2f}%")
     print(f"Precision: S = {prec_s:.2%}, NS = {prec_ns:.2%}")
     print(f"Recall   : S = {rec_s:.2%}, NS = {rec_ns:.2%}")
     print(f"F1-Score : S = {f1_s:.4f}, NS = {f1_ns:.4f}")
@@ -341,8 +414,12 @@ def evaluate_checker(name: str, checker: FactChecker, examples: List[dict]):
     return {
         "name": name,
         "acc": acc,
-        "prec_s": prec_s, "rec_s": rec_s, "f1_s": f1_s,
-        "prec_ns": prec_ns, "rec_ns": rec_ns, "f1_ns": f1_ns
+        "prec_s": prec_s,
+        "rec_s": rec_s,
+        "f1_s": f1_s,
+        "prec_ns": prec_ns,
+        "rec_ns": rec_ns,
+        "f1_ns": f1_ns,
     }
 
 
@@ -357,18 +434,24 @@ def run_baselines(examples):
     always_s_checker = AlwaysEntailedFactChecker()
 
     res_random = evaluate_checker("Random Guess (Coin Flip)", random_checker, examples)
-    res_always = evaluate_checker("Always Supported (Majority Class)", always_s_checker, examples)
+    res_always = evaluate_checker(
+        "Always Supported (Majority Class)", always_s_checker, examples
+    )
 
     print("\nBaseline Summary Table:")
     print(f"{'Baseline Model':<35} | {'Accuracy':<10} | {'F1 (S)':<8} | {'F1 (NS)':<8}")
     print("-" * 68)
     for r in [res_random, res_always]:
-        print(f"{r['name']:<35} | {r['acc']*100:>6.2f}%    | {r['f1_s']:<8.4f} | {r['f1_ns']:<8.4f}")
+        print(
+            f"{r['name']:<35} | {r['acc'] * 100:>6.2f}%    | {r['f1_s']:<8.4f} | {r['f1_ns']:<8.4f}"
+        )
 
 
-# ==========================================
+# _______________________________________________
+
 # Task 1: Experiments (Ablations, Metrics, Tuning, Cross-Validation)
-# ==========================================
+# _______________________________________________
+
 
 # Evaluate a scoring function across threshold sweep
 def evaluate_metric_grid(score_func, examples: List[dict]):
@@ -393,10 +476,16 @@ def evaluate_metric_grid(score_func, examples: List[dict]):
             best_th = th
             prec_s = tp / (tp + fp) if (tp + fp) > 0 else 0.0
             rec_s = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            best_f1_s = 2 * prec_s * rec_s / (prec_s + rec_s) if (prec_s + rec_s) > 0 else 0.0
+            best_f1_s = (
+                2 * prec_s * rec_s / (prec_s + rec_s) if (prec_s + rec_s) > 0 else 0.0
+            )
             prec_ns = tn / (tn + fn) if (tn + fn) > 0 else 0.0
             rec_ns = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-            best_f1_ns = 2 * prec_ns * rec_ns / (prec_ns + rec_ns) if (prec_ns + rec_ns) > 0 else 0.0
+            best_f1_ns = (
+                2 * prec_ns * rec_ns / (prec_ns + rec_ns)
+                if (prec_ns + rec_ns) > 0
+                else 0.0
+            )
 
     return best_acc, best_th, best_f1_s, best_f1_ns, scores
 
@@ -445,6 +534,7 @@ def run_task1_experiments(examples: List[dict]):
 
     # 1. Preprocessing ablation
     print("\n--- 1. Preprocessing Ablation Study ---")
+
     def score_p0(f, p):
         ft = re.findall(r"\b[a-zA-Z0-9]+\b", f.lower())
         pt = set(re.findall(r"\b[a-zA-Z0-9]+\b", p.lower()))
@@ -467,15 +557,19 @@ def run_task1_experiments(examples: List[dict]):
         ("P0: Raw Tokens (No stopwords, no stemming)", score_p0),
         ("P1: Stopwords Removed", score_p1),
         ("P2: Stopwords + Porter Stemming", score_p2),
-        ("P3: Stopwords + Stemming + Number Verification (Final)", score_p3)
+        ("P3: Stopwords + Stemming + Number Verification (Final)", score_p3),
     ]
 
-    print(f"{'Configuration':<52} | {'Thresh':<7} | {'Accuracy':<10} | {'F1 (S)':<8} | {'F1 (NS)':<8}")
+    print(
+        f"{'Configuration':<52} | {'Thresh':<7} | {'Accuracy':<10} | {'F1 (S)':<8} | {'F1 (NS)':<8}"
+    )
     print("-" * 96)
     for name, func in ablations:
         acc, th, f1s, f1ns, _ = evaluate_metric_grid(func, examples)
         star = " *" if "Final" in name else "  "
-        print(f"{name + star:<52} | {th:<7.3f} | {acc*100:>6.2f}%    | {f1s:<8.4f} | {f1ns:<8.4f}")
+        print(
+            f"{name + star:<52} | {th:<7.3f} | {acc * 100:>6.2f}%    | {f1s:<8.4f} | {f1ns:<8.4f}"
+        )
 
     # 2. Metric comparison
     print("\n--- 2. Similarity Metric Comparison ---")
@@ -484,22 +578,43 @@ def run_task1_experiments(examples: List[dict]):
         ("Dice Coefficient", dice_score),
         ("Jaccard Similarity", jaccard_score),
         ("Unigram Recall (Base)", base_unigram_recall),
-        ("Unigram Recall + Number Check (Final)", score_p3)
+        ("Unigram Recall + Number Check (Final)", score_p3),
     ]
 
-    print(f"{'Metric':<38} | {'Best Thresh':<12} | {'Accuracy':<10} | {'F1 (S)':<8} | {'F1 (NS)':<8}")
+    print(
+        f"{'Metric':<38} | {'Best Thresh':<12} | {'Accuracy':<10} | {'F1 (S)':<8} | {'F1 (NS)':<8}"
+    )
     print("-" * 86)
     for name, func in metrics:
         acc, th, f1s, f1ns, _ = evaluate_metric_grid(func, examples)
         star = " *" if "Final" in name else "  "
-        print(f"{name + star:<38} | {th:<12.4f} | {acc*100:>6.2f}%    | {f1s:<8.4f} | {f1ns:<8.4f}")
+        print(
+            f"{name + star:<38} | {th:<12.4f} | {acc * 100:>6.2f}%    | {f1s:<8.4f} | {f1ns:<8.4f}"
+        )
 
     # 3. Systematic threshold sweep
     print("\n--- 3. Systematic Threshold Tuning Curve (0.40 to 0.90) ---")
-    final_scores = [compute_fact_passages_overlap(ex["fact"], ex["passages"]) for ex in examples]
-    threshold_sweep = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.66, 0.70, 0.75, 0.80, 0.85, 0.90]
+    final_scores = [
+        compute_fact_passages_overlap(ex["fact"], ex["passages"]) for ex in examples
+    ]
+    threshold_sweep = [
+        0.40,
+        0.45,
+        0.50,
+        0.55,
+        0.60,
+        0.65,
+        0.66,
+        0.70,
+        0.75,
+        0.80,
+        0.85,
+        0.90,
+    ]
 
-    print(f"{'Threshold':<10} | {'Accuracy':<12} | {'Correct':<9} | {'False Pos':<10} | {'False Neg':<10} | {'F1 (S)':<8}")
+    print(
+        f"{'Threshold':<10} | {'Accuracy':<12} | {'Correct':<9} | {'False Pos':<10} | {'False Neg':<10} | {'F1 (S)':<8}"
+    )
     print("-" * 70)
     for th in threshold_sweep:
         tp = sum(1 for s, y in zip(final_scores, labels) if s >= th and y == "S")
@@ -511,7 +626,9 @@ def run_task1_experiments(examples: List[dict]):
         rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
         mark = " <-- OPTIMAL" if th == 0.66 else ""
-        print(f"{th:<10.2f} | {acc*100:>6.2f}%      | {tp+tn:>3}/{len(labels)}   | {fp:<10} | {fn:<10} | {f1:<8.4f}{mark}")
+        print(
+            f"{th:<10.2f} | {acc * 100:>6.2f}%      | {tp + tn:>3}/{len(labels)}   | {fp:<10} | {fn:<10} | {f1:<8.4f}{mark}"
+        )
 
     # 4. 5-Fold cross-validation
     print("\n--- 4. 5-Fold Stratified Cross-Validation ---")
@@ -538,7 +655,11 @@ def run_task1_experiments(examples: List[dict]):
         # Optimize threshold on training fold
         best_t, best_train_acc = 0.66, 0.0
         for cand_th in [round(t * 0.01, 2) for t in range(40, 91)]:
-            c_acc = sum(1 for s, y in zip(train_scores, train_labels) if (s >= cand_th and y == "S") or (s < cand_th and y == "NS")) / len(train_labels)
+            c_acc = sum(
+                1
+                for s, y in zip(train_scores, train_labels)
+                if (s >= cand_th and y == "S") or (s < cand_th and y == "NS")
+            ) / len(train_labels)
             if c_acc > best_train_acc:
                 best_train_acc = c_acc
                 best_t = cand_th
@@ -546,15 +667,25 @@ def run_task1_experiments(examples: List[dict]):
         # Evaluate on test fold
         test_scores = [final_scores[i] for i in test_idx]
         test_labels = [labels[i] for i in test_idx]
-        test_acc = sum(1 for s, y in zip(test_scores, test_labels) if (s >= best_t and y == "S") or (s < best_t and y == "NS")) / len(test_labels)
+        test_acc = sum(
+            1
+            for s, y in zip(test_scores, test_labels)
+            if (s >= best_t and y == "S") or (s < best_t and y == "NS")
+        ) / len(test_labels)
 
         cv_accuracies.append(test_acc)
         cv_thresholds.append(best_t)
-        print(f"  Fold {fold+1}: Best Train Thresh = {best_t:.2f} | Test Acc = {test_acc*100:.2f}%")
+        print(
+            f"  Fold {fold + 1}: Best Train Thresh = {best_t:.2f} | Test Acc = {test_acc * 100:.2f}%"
+        )
 
     mean_cv = sum(cv_accuracies) / len(cv_accuracies)
-    std_cv = math.sqrt(sum((a - mean_cv) ** 2 for a in cv_accuracies) / len(cv_accuracies))
-    print(f"  Mean Out-of-Fold Accuracy: {mean_cv*100:.2f}% (+/- {std_cv*100:.2f}%)")
+    std_cv = math.sqrt(
+        sum((a - mean_cv) ** 2 for a in cv_accuracies) / len(cv_accuracies)
+    )
+    print(
+        f"  Mean Out-of-Fold Accuracy: {mean_cv * 100:.2f}% (+/- {std_cv * 100:.2f}%)"
+    )
 
     # 5. Final model evaluation
     print("\n--- 5. Final Model Evaluation (Frozen at Threshold = 0.66) ---")
@@ -563,22 +694,68 @@ def run_task1_experiments(examples: List[dict]):
 
     # Save visual charts for report
     save_task1_plots(
-        ablations_results=[(name, evaluate_metric_grid(func, examples)[0]) for name, func in ablations],
-        metrics_results=[(m[0], evaluate_metric_grid(m[1], examples)[0]) for m in metrics],
-        threshold_sweep_results=[(th,
-                                  sum(1 for s, y in zip(final_scores, labels) if (s >= th and y == "S") or (s < th and y == "NS")) / len(labels),
-                                  (2 * sum(1 for s, y in zip(final_scores, labels) if s >= th and y == "S")) / (2 * sum(1 for s, y in zip(final_scores, labels) if s >= th and y == "S") + sum(1 for s, y in zip(final_scores, labels) if s >= th and y == "NS") + sum(1 for s, y in zip(final_scores, labels) if s < th and y == "S")) if (2 * sum(1 for s, y in zip(final_scores, labels) if s >= th and y == "S") + sum(1 for s, y in zip(final_scores, labels) if s >= th and y == "NS") + sum(1 for s, y in zip(final_scores, labels) if s < th and y == "S")) > 0 else 0.0)
-                                 for th in threshold_sweep],
+        ablations_results=[
+            (name, evaluate_metric_grid(func, examples)[0]) for name, func in ablations
+        ],
+        metrics_results=[
+            (m[0], evaluate_metric_grid(m[1], examples)[0]) for m in metrics
+        ],
+        threshold_sweep_results=[
+            (
+                th,
+                sum(
+                    1
+                    for s, y in zip(final_scores, labels)
+                    if (s >= th and y == "S") or (s < th and y == "NS")
+                )
+                / len(labels),
+                (
+                    2
+                    * sum(
+                        1 for s, y in zip(final_scores, labels) if s >= th and y == "S"
+                    )
+                )
+                / (
+                    2
+                    * sum(
+                        1 for s, y in zip(final_scores, labels) if s >= th and y == "S"
+                    )
+                    + sum(
+                        1 for s, y in zip(final_scores, labels) if s >= th and y == "NS"
+                    )
+                    + sum(
+                        1 for s, y in zip(final_scores, labels) if s < th and y == "S"
+                    )
+                )
+                if (
+                    2
+                    * sum(
+                        1 for s, y in zip(final_scores, labels) if s >= th and y == "S"
+                    )
+                    + sum(
+                        1 for s, y in zip(final_scores, labels) if s >= th and y == "NS"
+                    )
+                    + sum(
+                        1 for s, y in zip(final_scores, labels) if s < th and y == "S"
+                    )
+                )
+                > 0
+                else 0.0,
+            )
+            for th in threshold_sweep
+        ],
         final_scores=final_scores,
         labels=labels,
         cv_accuracies=cv_accuracies,
-        confusion_mat=(95, 17, 16, 93)
+        confusion_mat=(95, 17, 16, 93),
     )
 
 
-# ==========================================
+# _______________________________________________
+
 # Visualization Helpers (Save plots to output_figures/)
-# ==========================================
+# _______________________________________________
+
 
 # Save EDA distribution figures
 def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
@@ -591,22 +768,30 @@ def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
     bin_counts = Counter(ex["label"] for ex in examples)
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    axes[0].bar(["Supported (S)", "Not Supported (NS)", "Irrelevant (IR)"],
-                [raw_counts["S"], raw_counts["NS"], raw_counts["IR"]],
-                color=["#2b5c8f", "#d95f02", "#7570b3"])
+    axes[0].bar(
+        ["Supported (S)", "Not Supported (NS)", "Irrelevant (IR)"],
+        [raw_counts["S"], raw_counts["NS"], raw_counts["IR"]],
+        color=["#2b5c8f", "#d95f02", "#7570b3"],
+    )
     axes[0].set_title("Original 3-Class Distribution", fontsize=11, fontweight="bold")
     axes[0].set_ylabel("Count")
     for i, v in enumerate([raw_counts["S"], raw_counts["NS"], raw_counts["IR"]]):
         axes[0].text(i, v + 2, str(v), ha="center", fontweight="bold")
     axes[0].set_ylim(0, 130)
 
-    axes[1].bar(["Supported (S)", "Not Supported (NS)"],
-                [bin_counts["S"], bin_counts["NS"]],
-                color=["#2b5c8f", "#d95f02"])
-    axes[1].set_title("Binary Evaluation Distribution (IR -> NS)", fontsize=11, fontweight="bold")
+    axes[1].bar(
+        ["Supported (S)", "Not Supported (NS)"],
+        [bin_counts["S"], bin_counts["NS"]],
+        color=["#2b5c8f", "#d95f02"],
+    )
+    axes[1].set_title(
+        "Binary Evaluation Distribution (IR -> NS)", fontsize=11, fontweight="bold"
+    )
     axes[1].set_ylabel("Count")
     for i, v in enumerate([bin_counts["S"], bin_counts["NS"]]):
-        axes[1].text(i, v + 2, f"{v} ({v/len(examples):.1%})", ha="center", fontweight="bold")
+        axes[1].text(
+            i, v + 2, f"{v} ({v / len(examples):.1%})", ha="center", fontweight="bold"
+        )
     axes[1].set_ylim(0, 130)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "eda_label_distribution.png"), dpi=200)
@@ -615,13 +800,24 @@ def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
     # 2. Fact length distribution
     fact_lengths = [len(ex["fact"].split()) for ex in examples]
     plt.figure(figsize=(7, 4))
-    plt.hist(fact_lengths, bins=range(min(fact_lengths), max(fact_lengths) + 2),
-             color="#2b5c8f", edgecolor="black", align="left")
-    plt.title("Distribution of Atomic Fact Lengths (Words)", fontsize=11, fontweight="bold")
+    plt.hist(
+        fact_lengths,
+        bins=range(min(fact_lengths), max(fact_lengths) + 2),
+        color="#2b5c8f",
+        edgecolor="black",
+        align="left",
+    )
+    plt.title(
+        "Distribution of Atomic Fact Lengths (Words)", fontsize=11, fontweight="bold"
+    )
     plt.xlabel("Number of Words in Fact")
     plt.ylabel("Number of Facts")
-    plt.axvline(sum(fact_lengths) / len(fact_lengths), color="red", linestyle="--",
-                label=f"Mean = {sum(fact_lengths)/len(fact_lengths):.2f} words")
+    plt.axvline(
+        sum(fact_lengths) / len(fact_lengths),
+        color="red",
+        linestyle="--",
+        label=f"Mean = {sum(fact_lengths) / len(fact_lengths):.2f} words",
+    )
     plt.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "eda_fact_lengths.png"), dpi=200)
@@ -631,10 +827,18 @@ def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
     s_lens = [len(ex["fact"].split()) for ex in examples if ex["label"] == "S"]
     ns_lens = [len(ex["fact"].split()) for ex in examples if ex["label"] == "NS"]
     plt.figure(figsize=(7, 4))
-    plt.boxplot([s_lens, ns_lens], tick_labels=["Supported (S)", "Not Supported (NS)"], patch_artist=True,
-                boxprops=dict(facecolor="#c6dbef", color="#2b5c8f"),
-                medianprops=dict(color="red", linewidth=2))
-    plt.title("Fact Word Length by Class (S: Mean 6.26 vs NS: Mean 7.28)", fontsize=11, fontweight="bold")
+    plt.boxplot(
+        [s_lens, ns_lens],
+        tick_labels=["Supported (S)", "Not Supported (NS)"],
+        patch_artist=True,
+        boxprops=dict(facecolor="#c6dbef", color="#2b5c8f"),
+        medianprops=dict(color="red", linewidth=2),
+    )
+    plt.title(
+        "Fact Word Length by Class (S: Mean 6.26 vs NS: Mean 7.28)",
+        fontsize=11,
+        fontweight="bold",
+    )
     plt.ylabel("Fact Length (Words)")
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "eda_fact_lengths_by_class.png"), dpi=200)
@@ -644,9 +848,12 @@ def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
     passage_counts = [len(ex["passages"]) for ex in examples]
     p_counter = Counter(passage_counts)
     plt.figure(figsize=(6, 4))
-    plt.bar([str(k) for k in sorted(p_counter.keys())],
-            [p_counter[k] for k in sorted(p_counter.keys())],
-            color="#1b9e77", edgecolor="black")
+    plt.bar(
+        [str(k) for k in sorted(p_counter.keys())],
+        [p_counter[k] for k in sorted(p_counter.keys())],
+        color="#1b9e77",
+        edgecolor="black",
+    )
     plt.title("Retrieved Wikipedia Passages per Fact", fontsize=11, fontweight="bold")
     plt.xlabel("Number of Passages")
     plt.ylabel("Number of Facts")
@@ -658,47 +865,92 @@ def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
     plt.close()
 
     # 5. Wikipedia passage length distribution
-    passage_lengths = [len(p.get("text", "").split()) for ex in examples for p in ex["passages"]]
+    passage_lengths = [
+        len(p.get("text", "").split()) for ex in examples for p in ex["passages"]
+    ]
     plt.figure(figsize=(7, 4))
     plt.hist(passage_lengths, bins=25, color="#7570b3", edgecolor="black")
-    plt.title("Distribution of Retrieved Wikipedia Passage Lengths (Words)", fontsize=11, fontweight="bold")
+    plt.title(
+        "Distribution of Retrieved Wikipedia Passage Lengths (Words)",
+        fontsize=11,
+        fontweight="bold",
+    )
     plt.xlabel("Passage Word Count")
     plt.ylabel("Number of Passages")
-    plt.axvline(sum(passage_lengths) / len(passage_lengths), color="red", linestyle="--",
-                label=f"Mean = {sum(passage_lengths)/len(passage_lengths):.1f} words")
+    plt.axvline(
+        sum(passage_lengths) / len(passage_lengths),
+        color="red",
+        linestyle="--",
+        label=f"Mean = {sum(passage_lengths) / len(passage_lengths):.1f} words",
+    )
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "eda_passage_length_distribution.png"), dpi=200)
+    plt.savefig(
+        os.path.join(output_dir, "eda_passage_length_distribution.png"), dpi=200
+    )
     plt.close()
 
     # 6. Length asymmetry ratio (Passage Length / Fact Length)
-    ratios = [len(p.get("text", "").split()) / len(ex["fact"].split()) for ex in examples for p in ex["passages"]]
+    ratios = [
+        len(p.get("text", "").split()) / len(ex["fact"].split())
+        for ex in examples
+        for p in ex["passages"]
+    ]
     plt.figure(figsize=(7, 4))
     plt.hist(ratios, bins=25, color="#d95f02", edgecolor="black")
-    plt.title("Length Asymmetry Ratio (Passage Length / Fact Length)", fontsize=11, fontweight="bold")
+    plt.title(
+        "Length Asymmetry Ratio (Passage Length / Fact Length)",
+        fontsize=11,
+        fontweight="bold",
+    )
     plt.xlabel("Ratio (Passage Words : Fact Words)")
     plt.ylabel("Count")
-    plt.axvline(sum(ratios) / len(ratios), color="black", linestyle="--",
-                label=f"Mean Ratio = {sum(ratios)/len(ratios):.1f}x")
+    plt.axvline(
+        sum(ratios) / len(ratios),
+        color="black",
+        linestyle="--",
+        label=f"Mean Ratio = {sum(ratios) / len(ratios):.1f}x",
+    )
     plt.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "eda_length_asymmetry_ratio.png"), dpi=200)
     plt.close()
 
     # 7. Numerical & Date Entity Presence by Class
-    s_has_num = sum(1 for ex in examples if ex["label"] == "S" and extract_numbers(ex["fact"]))
-    ns_has_num = sum(1 for ex in examples if ex["label"] == "NS" and extract_numbers(ex["fact"]))
+    s_has_num = sum(
+        1 for ex in examples if ex["label"] == "S" and extract_numbers(ex["fact"])
+    )
+    ns_has_num = sum(
+        1 for ex in examples if ex["label"] == "NS" and extract_numbers(ex["fact"])
+    )
     s_total = len(s_lens)
     ns_total = len(ns_lens)
 
     plt.figure(figsize=(6, 4))
-    plt.bar(["Supported (S)", "Not Supported (NS)"],
-            [s_has_num / s_total * 100, ns_has_num / ns_total * 100],
-            color=["#2b5c8f", "#d95f02"], edgecolor="black")
-    plt.title("Percentage of Claims Containing Numbers/Dates", fontsize=11, fontweight="bold")
+    plt.bar(
+        ["Supported (S)", "Not Supported (NS)"],
+        [s_has_num / s_total * 100, ns_has_num / ns_total * 100],
+        color=["#2b5c8f", "#d95f02"],
+        edgecolor="black",
+    )
+    plt.title(
+        "Percentage of Claims Containing Numbers/Dates", fontsize=11, fontweight="bold"
+    )
     plt.ylabel("Percentage of Claims (%)")
-    plt.text(0, (s_has_num / s_total * 100) + 1, f"{s_has_num}/{s_total} ({s_has_num/s_total:.1%})", ha="center", fontweight="bold")
-    plt.text(1, (ns_has_num / ns_total * 100) + 1, f"{ns_has_num}/{ns_total} ({ns_has_num/ns_total:.1%})", ha="center", fontweight="bold")
+    plt.text(
+        0,
+        (s_has_num / s_total * 100) + 1,
+        f"{s_has_num}/{s_total} ({s_has_num / s_total:.1%})",
+        ha="center",
+        fontweight="bold",
+    )
+    plt.text(
+        1,
+        (ns_has_num / ns_total * 100) + 1,
+        f"{ns_has_num}/{ns_total} ({ns_has_num / ns_total:.1%})",
+        ha="center",
+        fontweight="bold",
+    )
     plt.ylim(0, 30)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "eda_numerical_facts_by_class.png"), dpi=200)
@@ -708,7 +960,16 @@ def save_eda_plots(examples: List[dict], output_dir: str = "output_figures"):
 
 
 # Save Task 1 metric and threshold figures
-def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results, final_scores, labels, cv_accuracies, confusion_mat, output_dir: str = "output_figures"):
+def save_task1_plots(
+    ablations_results,
+    metrics_results,
+    threshold_sweep_results,
+    final_scores,
+    labels,
+    cv_accuracies,
+    confusion_mat,
+    output_dir: str = "output_figures",
+):
     if not _HAS_MATPLOTLIB:
         return
     os.makedirs(output_dir, exist_ok=True)
@@ -717,14 +978,29 @@ def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results
     ab_names = [a[0].split(":")[0] for a in ablations_results]
     ab_accs = [a[1] * 100 for a in ablations_results]
     plt.figure(figsize=(8, 4.2))
-    bars = plt.bar(ab_names, ab_accs, color=["#bdc9e1", "#74a9cf", "#2b8cbe", "#045a8d"], edgecolor="black")
-    plt.title("Task 1: Preprocessing Ablation Performance Gain", fontsize=11, fontweight="bold")
+    bars = plt.bar(
+        ab_names,
+        ab_accs,
+        color=["#bdc9e1", "#74a9cf", "#2b8cbe", "#045a8d"],
+        edgecolor="black",
+    )
+    plt.title(
+        "Task 1: Preprocessing Ablation Performance Gain",
+        fontsize=11,
+        fontweight="bold",
+    )
     plt.ylabel("Accuracy (%)")
     plt.axhline(75.0, color="red", linestyle="--", label="Coursework Target (75%)")
     plt.ylim(70, 90)
     for bar in bars:
         h = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, h + 0.4, f"{h:.2f}%", ha="center", fontweight="bold")
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            h + 0.4,
+            f"{h:.2f}%",
+            ha="center",
+            fontweight="bold",
+        )
     plt.legend(loc="upper left")
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "task1_preprocessing_ablation.png"), dpi=200)
@@ -737,13 +1013,21 @@ def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results
 
     plt.figure(figsize=(9, 4.5))
     bars = plt.barh(names, accs, color=colors, edgecolor="black")
-    plt.title("Task 1: Overlap Similarity Metric Comparison", fontsize=11, fontweight="bold")
+    plt.title(
+        "Task 1: Overlap Similarity Metric Comparison", fontsize=11, fontweight="bold"
+    )
     plt.xlabel("Development Accuracy (%)")
     plt.axvline(75.0, color="red", linestyle="--", label="Coursework Target (75%)")
     plt.xlim(0, 100)
     for bar in bars:
         w = bar.get_width()
-        plt.text(w + 1, bar.get_y() + bar.get_height() / 2, f"{w:.2f}%", va="center", fontweight="bold")
+        plt.text(
+            w + 1,
+            bar.get_y() + bar.get_height() / 2,
+            f"{w:.2f}%",
+            va="center",
+            fontweight="bold",
+        )
     plt.legend(loc="lower right")
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "task1_metric_comparison.png"), dpi=200)
@@ -753,10 +1037,32 @@ def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results
     s_scores = [s for s, y in zip(final_scores, labels) if y == "S"]
     ns_scores = [s for s, y in zip(final_scores, labels) if y == "NS"]
     plt.figure(figsize=(8, 4.5))
-    plt.hist(s_scores, bins=15, alpha=0.6, color="#2b5c8f", label=f"Supported Claims (Mean={np.mean(s_scores):.2f})", edgecolor="black")
-    plt.hist(ns_scores, bins=15, alpha=0.6, color="#d95f02", label=f"Not Supported Claims (Mean={np.mean(ns_scores):.2f})", edgecolor="black")
-    plt.axvline(0.66, color="green", linewidth=2.5, linestyle="--", label="Optimal Boundary (theta = 0.66)")
-    plt.title("Task 1: Overlap Score Separability by Class", fontsize=11, fontweight="bold")
+    plt.hist(
+        s_scores,
+        bins=15,
+        alpha=0.6,
+        color="#2b5c8f",
+        label=f"Supported Claims (Mean={np.mean(s_scores):.2f})",
+        edgecolor="black",
+    )
+    plt.hist(
+        ns_scores,
+        bins=15,
+        alpha=0.6,
+        color="#d95f02",
+        label=f"Not Supported Claims (Mean={np.mean(ns_scores):.2f})",
+        edgecolor="black",
+    )
+    plt.axvline(
+        0.66,
+        color="green",
+        linewidth=2.5,
+        linestyle="--",
+        label="Optimal Boundary (theta = 0.66)",
+    )
+    plt.title(
+        "Task 1: Overlap Score Separability by Class", fontsize=11, fontweight="bold"
+    )
     plt.xlabel("Overlap Score")
     plt.ylabel("Number of Claims")
     plt.legend()
@@ -770,10 +1076,24 @@ def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results
     f1_vals = [r[2] * 100 for r in threshold_sweep_results]
 
     plt.figure(figsize=(7, 4.5))
-    plt.plot(ths, acc_vals, marker="o", color="#2b5c8f", linewidth=2, label="Accuracy (%)")
-    plt.plot(ths, f1_vals, marker="s", color="#d95f02", linewidth=2, linestyle="--", label="F1 Score (Supported)")
+    plt.plot(
+        ths, acc_vals, marker="o", color="#2b5c8f", linewidth=2, label="Accuracy (%)"
+    )
+    plt.plot(
+        ths,
+        f1_vals,
+        marker="s",
+        color="#d95f02",
+        linewidth=2,
+        linestyle="--",
+        label="F1 Score (Supported)",
+    )
     plt.axvline(0.66, color="green", linestyle=":", label="Optimal Threshold (0.66)")
-    plt.title("Task 1: Threshold Sensitivity Curve (Word Recall)", fontsize=11, fontweight="bold")
+    plt.title(
+        "Task 1: Threshold Sensitivity Curve (Word Recall)",
+        fontsize=11,
+        fontweight="bold",
+    )
     plt.xlabel("Classification Threshold (theta)")
     plt.ylabel("Score (%)")
     plt.grid(True, linestyle="--", alpha=0.5)
@@ -784,15 +1104,30 @@ def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results
 
     # 5. 5-Fold cross-validation stability
     plt.figure(figsize=(7, 4))
-    folds = [f"Fold {i+1}" for i in range(len(cv_accuracies))]
-    bars = plt.bar(folds, [acc * 100 for acc in cv_accuracies], color="#41b6c4", edgecolor="black")
-    plt.axhline(np.mean(cv_accuracies) * 100, color="red", linestyle="--", label=f"Mean Out-of-Fold ({np.mean(cv_accuracies)*100:.2f}%)")
-    plt.title("Task 1: 5-Fold Cross-Validation Accuracy", fontsize=11, fontweight="bold")
+    folds = [f"Fold {i + 1}" for i in range(len(cv_accuracies))]
+    bars = plt.bar(
+        folds, [acc * 100 for acc in cv_accuracies], color="#41b6c4", edgecolor="black"
+    )
+    plt.axhline(
+        np.mean(cv_accuracies) * 100,
+        color="red",
+        linestyle="--",
+        label=f"Mean Out-of-Fold ({np.mean(cv_accuracies) * 100:.2f}%)",
+    )
+    plt.title(
+        "Task 1: 5-Fold Cross-Validation Accuracy", fontsize=11, fontweight="bold"
+    )
     plt.ylabel("Validation Accuracy (%)")
     plt.ylim(75, 95)
     for bar in bars:
         h = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, h + 0.3, f"{h:.2f}%", ha="center", fontweight="bold")
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            h + 0.3,
+            f"{h:.2f}%",
+            ha="center",
+            fontweight="bold",
+        )
     plt.legend(loc="lower right")
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "task1_cross_validation_folds.png"), dpi=200)
@@ -804,14 +1139,25 @@ def save_task1_plots(ablations_results, metrics_results, threshold_sweep_results
 
     plt.figure(figsize=(5, 4.2))
     plt.imshow(cm, cmap="Blues", interpolation="nearest")
-    plt.title("Task 1: Confusion Matrix (Accuracy: 85.07%)", fontsize=11, fontweight="bold")
+    plt.title(
+        "Task 1: Confusion Matrix (Accuracy: 85.07%)", fontsize=11, fontweight="bold"
+    )
     plt.xticks([0, 1], ["Pred S", "Pred NS"])
     plt.yticks([0, 1], ["Actual S (112)", "Actual NS (109)"])
     for i in range(2):
         for j in range(2):
             val = cm[i, j]
             color = "white" if val > 50 else "black"
-            plt.text(j, i, str(val), ha="center", va="center", fontsize=14, fontweight="bold", color=color)
+            plt.text(
+                j,
+                i,
+                str(val),
+                ha="center",
+                va="center",
+                fontsize=14,
+                fontweight="bold",
+                color=color,
+            )
     plt.colorbar()
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "task1_confusion_matrix.png"), dpi=200)
