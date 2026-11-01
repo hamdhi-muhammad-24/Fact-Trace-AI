@@ -1,574 +1,122 @@
-# 03 – Member 3 Guide: Part 3 – Error Analysis
+# 03 – Task 3 Guide: Qualitative Error Analysis
 
-## Owner
-
-**Member 3**
-
-## Weight
+## 1. Overview & Weight
 
 ```text
-20 marks
+Task:   Part 3 – Error Analysis
+Weight: 20 Marks
+Input:  Predictions from the final Part 2 Textual Entailment model
+Deliverable: Qualitative Error Analysis section in the final PDF report
 ```
 
-## Main Output
-
-Part 3 produces the written error-analysis content for the final PDF.
-
-Member 3 should normally not add runtime Python files.
-
-The final required code file remains:
-
-```text
-factcheck.py
-```
+In this task, we perform a deep qualitative and quantitative investigation into why the final DeBERTa entailment model makes mistakes. We identify recurring linguistic, semantic, and structural failure modes, define fine-grained categories, compute aggregate statistics, and analyze three detailed case studies.
 
 ---
 
-# 1. Main Goal
+## 2. Core Concepts: Error Definitions
 
-Analyse errors from the final Part 2 entailment system.
+Remember that the evaluator converts `IR` (Irrelevant) to `NS` (Not Supported) during binary evaluation.
 
-Two broad error types:
-
-## False Positive
-
-```text
-Predicted: S
-Gold:      NS
-```
-
-## False Negative
-
-```text
-Predicted: NS
-Gold:      S
-```
-
-Remember:
-
-The provided evaluator converts:
-
-```text
-IR → NS
-```
-
-for two-class evaluation.
+### Two Broad Error Types:
+1. **False Positive (FP)**:
+   - Ground Truth: `NS` (or `IR`)
+   - Model Prediction: `S`
+   - *Meaning*: The model claimed the fact is supported when Wikipedia evidence does not actually support it.
+2. **False Negative (FN)**:
+   - Ground Truth: `S`
+   - Model Prediction: `NS`
+   - *Meaning*: The fact is actually supported by the source, but the model failed to detect entailment.
 
 ---
 
-# 2. Required Error Sample
+## 3. Required Error Sample Size
 
-The coursework requires manual examination of:
-
-```text
-10 false positives
-10 false negatives
-```
-
-If fewer than 10 exist for a type:
-
-```text
-analyse all available errors of that type
-```
+Per coursework specifications:
+- Manually examine **at least 10 False Positives** and **at least 10 False Negatives** (or all available errors if fewer exist).
+- For each error, record:
+  - Atomic fact text
+  - Gold human label
+  - Model prediction & confidence score
+  - Retrieved passage text & candidate sentences
+  - Linguistic/semantic cause of failure
 
 ---
 
-# 3. Required Categories
+## 4. Error Taxonomy (3–4 Fine-Grained Categories)
 
-Create around:
+Do not use trivial labels like "wrong prediction" or "false positive". The categories must reflect genuine linguistic and semantic phenomena observed in the data:
 
-```text
-2–4 fine-grained error categories
-```
+### 1. Entity & Context Misalignment (False Positives)
+- **Definition**: The evidence discusses a namesake, an artistic work (e.g. a book or movie title), or an unrelated person sharing the same surname/first name, leading the model to falsely infer that the attribute belongs to the biographical subject.
+- **Example Pattern**: A claim about a marriage or occupation matching words in a television episode title (*"Love, American Style"*).
 
-The categories must describe meaningful recurring patterns.
+### 2. Lexical & World Knowledge Paraphrase Gap (False Negatives)
+- **Definition**: The source text uses implicit phrasing, professional terminology, or synonyms that the NLI model fails to map to the claim proposition without external background knowledge.
+- **Example Pattern**: *"served as a pastor"* vs Wikipedia text stating *"was ordained as a minister in the Presbyterian Church"*.
 
-Do not use trivial categories like:
+### 3. Numerical & Temporal Granularity Mismatch (False Positives / Negatives)
+- **Definition**: Discrepancies involving specific calendar dates, birth years, durations, or quantities. The model either overlooks subtle digit mismatches (e.g. 1974 vs 1976) or penalizes approximate temporal phrasing (e.g. *"in the late 1970s"* vs *"in 1978"*).
 
-```text
-False Positive
-False Negative
-Wrong Prediction
-```
-
-The categories must come from the actual final model errors.
+### 4. Negation & Scope Inversion (False Positives)
+- **Definition**: High semantic similarity between the premise and hypothesis where the premise contains a subtle negation operator, restrictive adverb (*never*, *rarely*, *failed to*), or conditional clause that flips the factual truth value.
 
 ---
 
-# 4. Required PDF Content
+## 5. Aggregate Statistics & Distribution
 
-The written submission must include:
+In the final report, summarize the distribution across examined errors:
 
-## Category Definitions
+| Error Category | False Positives (FP) | False Negatives (FN) | Total Errors | Percentage |
+| :--- | :---: | :---: | :---: | :---: |
+| Entity & Context Misalignment | Actual | Actual | Actual | % |
+| Paraphrase & World Knowledge Gap | Actual | Actual | Actual | % |
+| Numerical & Temporal Mismatch | Actual | Actual | Actual | % |
+| Negation & Scope Inversion | Actual | Actual | Actual | % |
+| **Total Examined** | **>= 10** | **>= 10** | **>= 20** | **100%** |
 
-```text
-1–2 sentences per category
-```
-
-## Aggregate Statistics
-
-How many examined errors belong to each category.
-
-## Three Detailed Examples
-
-For each example:
-
-```text
-(a) example text
-(b) ground-truth label
-(c) predicted label
-(d) fine-grained category
-(e) 1–3 sentence explanation
-```
+Include a visual bar chart illustrating this distribution in the report.
 
 ---
 
-# 5. Branch
+## 6. Three Detailed Case Studies (Rubric Requirement)
 
-Use:
+For the three selected case studies, provide the following structured breakdown:
 
-```text
-error-analysis
-```
+### Case Study 1: [Category Name]
+- **Fact Text**: *"..."*
+- **Ground Truth**: `S` or `NS`
+- **Model Prediction**: `S` or `NS` (Confidence score: `0.xx`)
+- **Wikipedia Evidence**: *"..."*
+- **Fine-Grained Error Category**: `[Category Name]`
+- **Root-Cause Analysis (1–3 sentences)**: Explain precisely why the language, syntax, or reasoning failed.
 
-Member 3 should avoid editing Part 1/Part 2 core code unless specifically agreed.
+### Case Study 2: [Category Name]
+- *(Same structured format)*
 
----
-
-# 6. T3.1 – Understand the Actual Evaluation
-
-Read:
-
-```text
-factchecking_main.py
-```
-
-Understand:
-
-```text
-converted_label = "NS" if example.label == "IR" else example.label
-```
-
-This means the final evaluation classes are:
-
-```text
-S
-NS
-```
-
-Make sure your FP/FN logic uses the same two-class interpretation.
+### Case Study 3: [Category Name]
+- *(Same structured format)*
 
 ---
 
-# 7. T3.2 – Understand Prediction Output
+## 7. Critical Reflection & Future Improvements
 
-Ask Members 1 and 2 to explain:
+For full Grade A credit, connect observed errors to fundamental model limitations and propose technical remedies:
 
-```text
-predict(...)
-```
-
-output.
-
-Both models return:
-
-```text
-"S"
-or
-"NS"
-```
-
-Member 3 must be able to compare:
-
-```text
-gold label
-vs
-prediction
-```
-
-correctly.
+1. **Cross-Sentence Coreference Resolution**:
+   - *Limitation*: Passages often refer to the subject with pronouns (*"He"*, *"She"*, *"The actor"*) in subsequent sentences. Isolated sentence splitting can lose the subject referent.
+   - *Improvement*: Apply neural coreference resolution (e.g. fastcoref) before sentence segmentation.
+2. **Multi-Hop Evidence Synthesis**:
+   - *Limitation*: Some facts require combining two separate sentences (e.g., Sentence 1 states birth in Munich; Sentence 2 states Munich is in Germany).
+   - *Improvement*: Implement graph-based multi-hop retrieval or concatenating top-2 adjacent sentences.
+3. **Structured Entity & Date Verification**:
+   - *Limitation*: NLI models can treat numbers as generic tokens without strict numerical equality checks.
+   - *Improvement*: Hybrid NLI with dedicated Named Entity Recognition (NER) and temporal constraint filters.
 
 ---
 
-# 8. T3.3 – Start Experiment Tracking Early
-
-Do not wait for final Part 2.
-
-Maintain one simple shared experiment record.
-
-Suggested fields:
-
-```text
-Experiment ID
-Part
-Configuration
-Threshold
-Accuracy
-Runtime notes
-Memory notes
-Comments
-```
-
-Only enter real values.
-
-Do not invent results.
-
----
-
-# 9. T3.4 – Prepare Error Record Format
-
-Prepare a consistent record format:
-
-```text
-Error ID
-Fact
-Gold label
-Predicted label
-FP/FN
-Evidence
-Entailment score if available
-Fine-grained category
-Notes
-```
-
-Do not create final categories yet.
-
----
-
-# 10. T3.5 – Test the Collection Process on Early Models
-
-When Member 2 has an early working model:
-
-- run it
-- identify a few wrong predictions
-- verify FP/FN logic
-- verify evidence can be inspected
-- verify records are understandable
-
-Do not use these early errors as final analysis unless the team later confirms the model version is final.
-
----
-
-# 11. T3.6 – Integration Testing Role
-
-Member 3 helps keep `develop` healthy.
-
-After major merges, test:
-
-```bash
-python factchecking_main.py --mode word_overlap
-```
-
-and:
-
-```bash
-python factchecking_main.py --mode entailment
-```
-
-Report:
-
-- crashes
-- broken imports
-- wrong file paths
-- unexpected outputs
-- memory errors
-
-Do not silently change another member's core code.
-
----
-
-# 12. T3.7 – Confirm Final Entailment Version
-
-Before collecting final errors, all three members must agree:
-
-```text
-This is the final Part 2 configuration.
-```
-
-Record:
-
-- evidence processing strategy
-- binary decision strategy
-- threshold if used
-- pruning setting if used
-- final accuracy
-
-Use errors only from this final version for the written analysis.
-
----
-
-# 13. T3.8 – Collect False Positives
-
-Collect:
-
-```text
-10 FP
-```
-
-or all available if fewer.
-
-For each FP keep:
-
-- fact
-- relevant evidence
-- gold label
-- prediction
-- useful score if available
-
----
-
-# 14. T3.9 – Collect False Negatives
-
-Collect:
-
-```text
-10 FN
-```
-
-or all available if fewer.
-
-Use the same format.
-
----
-
-# 15. T3.10 – Manual Review by All Three Members
-
-All members should read the selected errors.
-
-For each error ask:
-
-- what does the claim say?
-- what does the evidence actually say?
-- why might the model have failed?
-- is the same type of failure repeated?
-- is it lexical, semantic, structural, numerical, entity-related, or another real pattern?
-
-These are prompts for thinking.
-
-Do not force categories before examining examples.
-
----
-
-# 16. T3.11 – Create 2–4 Categories
-
-After review, create around:
-
-```text
-2–4 categories
-```
-
-Every category should represent a repeated pattern found in the actual examples.
-
-A category should help answer:
-
-```text
-Why did the model make this kind of mistake?
-```
-
-Do not create categories only to satisfy the number requirement.
-
----
-
-# 17. T3.12 – Assign Every Examined Error
-
-Assign each selected FP/FN to a fine-grained category.
-
-Check:
-
-- categories are consistent
-- definitions do not overlap too much
-- category assignment makes sense
-- counts will be reproducible
-
----
-
-# 18. T3.13 – Write Category Definitions
-
-For each category:
-
-```text
-1–2 sentences
-```
-
-Explain:
-
-- what pattern it represents
-- why that pattern is difficult for the model
-
-Use your own analysis.
-
----
-
-# 19. T3.14 – Calculate Aggregate Statistics
-
-Count:
-
-```text
-number of errors in each category
-```
-
-Check:
-
-```text
-sum of category counts
-=
-number of examined errors
-```
-
-Do not invent numbers.
-
----
-
-# 20. T3.15 – Choose Three Detailed Examples
-
-Choose three useful examples.
-
-Each must include:
-
-```text
-example text
-ground-truth label
-predicted label
-category
-1–3 sentence explanation
-```
-
-Use examples that clearly demonstrate important patterns.
-
----
-
-# 21. T3.16 – Explain Examples Properly
-
-Do not write only:
-
-```text
-The model predicted incorrectly.
-```
-
-Explain:
-
-- what information the claim requires
-- what the evidence provides
-- where the mismatch/difficulty appears
-- why the selected category applies
-
-Keep explanations concise and evidence-based.
-
----
-
-# 22. T3.17 – Prepare PDF Structure
-
-Keep the PDF focused on Part 3.
-
-Suggested simple structure:
-
-```text
-Title
-
-1. Error Analysis Method
-2. Fine-Grained Error Categories
-3. Aggregate Error Statistics
-4. Three Detailed Error Examples
-5. Short Discussion of Main Model Limitations
-```
-
-Do not turn the PDF into a large unrelated software-project report.
-
----
-
-# 23. T3.18 – Team Review
-
-## Member 1 checks
-
-- lexical-overlap related explanations
-- evidence wording observations
-
-## Member 2 checks
-
-- entailment/model explanations
-- predicted labels/scores
-
-## Member 3 checks
-
-- category consistency
-- counts
-- required example fields
-- PDF completeness
-
-All three approve the final content.
-
----
-
-# 24. T3.19 – Repository Cleanliness Check
-
-Member 3 can help with the final repository check.
-
-Confirm:
-
-- no unnecessary custom Python files
-- no unnecessary runtime folders
-- no `.venv/`
-- no model cache
-- no modified dataset
-- no modified `factchecking_main.py`
-- `factcheck.py` contains required custom runtime logic
-
----
-
-# 25. T3.20 – Final Required Command Check
-
-Run from clean project root:
-
-```bash
-python factchecking_main.py --mode word_overlap
-```
-
-Then:
-
-```bash
-python factchecking_main.py --mode entailment
-```
-
-Both must complete without errors.
-
----
-
-# 26. T3.21 – Final Submission Check
-
-Required separate files:
-
-```text
-1. PDF written submission
-2. factcheck.py
-```
-
-Do not submit:
-
-```text
-whole Git repo
-docs folder
-README
-.venv
-FActScore-main repository
-```
-
-unless the lecturer separately asks for them.
-
----
-
-# 27. Member 3 Definition of Done
-
-- [ ] final Part 2 version confirmed
-- [ ] FP sample collected
-- [ ] FN sample collected
-- [ ] up to 10 of each manually examined
-- [ ] all three members reviewed errors
-- [ ] 2–4 meaningful categories created
-- [ ] category definitions written
-- [ ] aggregate counts correct
-- [ ] three detailed examples complete
-- [ ] PDF complete
-- [ ] both required commands pass
-- [ ] repository clean
-- [ ] final `factcheck.py` ready
-- [ ] final PDF ready
+## 8. Code Implementation in `factcheck.py`
+
+To ensure complete reproducibility with zero extra files, an automated error extraction function is embedded in `factcheck.py`:
+- It compares the predictions of `EntailmentFactChecker` against gold labels.
+- It extracts all FP and FN cases along with claim text, passage text, and prediction confidence.
+- It prints formatted markdown tables ready to inspect and document in the report.
