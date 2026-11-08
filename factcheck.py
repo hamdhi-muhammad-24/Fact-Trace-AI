@@ -7,7 +7,7 @@ import re
 import math
 import gc
 import textwrap
-from typing import List, Dict, Set, Tuple, Any
+from typing import List, Dict, Set, Tuple, Any, Optional
 from collections import Counter, defaultdict
 import numpy as np
 import torch
@@ -81,9 +81,15 @@ class FactChecker(object):
 
 
 class RandomGuessFactChecker(FactChecker):
+    def __init__(self, seed: Optional[int] = None):
+        self.seed = seed
+        self.rng = np.random.RandomState(seed) if seed is not None else None
+
     def predict(self, fact: str, passages: List[dict]) -> str:
+        if self.rng is not None:
+            return str(self.rng.choice(["S", "NS"]))
         prediction = np.random.choice(["S", "NS"])
-        return prediction
+        return str(prediction)
 
 
 class AlwaysEntailedFactChecker(FactChecker):
@@ -727,11 +733,436 @@ def run_eda(passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",
 
 
 # ==============================================================================
+# PHASE 2: EVALUATION FRAMEWORK & BASELINE BENCHMARKS
+# ==============================================================================
+
+def calculate_confusion_matrix(gold_labels: List[str], pred_labels: List[str]) -> List[List[int]]:
+    """
+    Computes a 2x2 confusion matrix matching factchecking_main.py orientation.
+    Label indexer: index 0 = 'S', index 1 = 'NS'.
+    Returns:
+        confusion_mat[gold_label_idx][pred_label_idx]:
+        [[TP, FN],
+         [FP, TN]]
+    """
+    label_indexer = ["S", "NS"]
+    confusion_mat = [[0, 0], [0, 0]]
+    for g, p in zip(gold_labels, pred_labels):
+        g_idx = label_indexer.index(g)
+        p_idx = label_indexer.index(p)
+        confusion_mat[g_idx][p_idx] += 1
+    return confusion_mat
+
+
+def calculate_metrics(confusion_mat: List[List[int]]) -> Dict[str, Any]:
+    """
+    Replicates the exact evaluation logic of print_eval_stats from factchecking_main.py,
+    augmented with balanced accuracy and macro-F1.
+    """
+    tp = confusion_mat[0][0]
+    fn = confusion_mat[0][1]
+    fp = confusion_mat[1][0]
+    tn = confusion_mat[1][1]
+    total = tp + fn + fp + tn
+    correct = tp + tn
+    accuracy = correct / total if total > 0 else 0.0
+
+    # Class 0: 'S'
+    num_correct_s = tp
+    num_gold_s = tp + fn
+    num_pred_s = tp + fp
+    rec_s = num_correct_s / num_gold_s if num_gold_s > 0 else 0.0
+    if num_pred_s > 0:
+        prec_s = num_correct_s / num_pred_s
+        f1_s = (2 * prec_s * rec_s / (prec_s + rec_s)) if (prec_s + rec_s) > 0 else 0.0
+    else:
+        prec_s = None
+        f1_s = None
+
+    # Class 1: 'NS'
+    num_correct_ns = tn
+    num_gold_ns = fp + tn
+    num_pred_ns = fn + tn
+    rec_ns = num_correct_ns / num_gold_ns if num_gold_ns > 0 else 0.0
+    if num_pred_ns > 0:
+        prec_ns = num_correct_ns / num_pred_ns
+        f1_ns = (2 * prec_ns * rec_ns / (prec_ns + rec_ns)) if (prec_ns + rec_ns) > 0 else 0.0
+    else:
+        prec_ns = None
+        f1_ns = None
+
+    # Balanced metrics
+    balanced_acc = (rec_s + rec_ns) / 2.0
+    macro_f1 = ((f1_s if f1_s is not None else 0.0) + (f1_ns if f1_ns is not None else 0.0)) / 2.0 if (f1_s is not None and f1_ns is not None) else None
+
+    return {
+        "confusion_matrix": confusion_mat,
+        "tp": tp,
+        "fn": fn,
+        "fp": fp,
+        "tn": tn,
+        "total": total,
+        "correct": correct,
+        "accuracy": accuracy,
+        "precision_s": prec_s,
+        "recall_s": rec_s,
+        "f1_s": f1_s,
+        "precision_ns": prec_ns,
+        "recall_ns": rec_ns,
+        "f1_ns": f1_ns,
+        "balanced_accuracy": balanced_acc,
+        "macro_f1": macro_f1
+    }
+
+
+def evaluate_fact_checker_standalone(examples: List[FactExample], fact_checker: FactChecker) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Evaluates any FactChecker instance on development examples using official binary mapping:
+    'S' remains 'S', 'NS' remains 'NS', and 'IR' is mapped to 'NS'.
+    Returns (metrics_dict, predictions_list).
+    """
+    gold_labels = ["NS" if ex.label == "IR" else ex.label for ex in examples]
+    predictions = []
+    for ex in examples:
+        raw_pred = fact_checker.predict(ex.fact, ex.passages)
+        if raw_pred not in ("S", "NS"):
+            raise ValueError(f"Classifier returned invalid prediction '{raw_pred}'. Must be 'S' or 'NS'.")
+        predictions.append(raw_pred)
+
+    confusion_mat = calculate_confusion_matrix(gold_labels, predictions)
+    metrics = calculate_metrics(confusion_mat)
+    return metrics, predictions
+
+
+def run_monte_carlo_random_baseline(examples: List[FactExample], num_iterations: int = 1000) -> Dict[str, Any]:
+    """
+    Executes multiple independent seeds of RandomGuessFactChecker to measure true empirical distribution,
+    standard deviation, and 95% confidence intervals across chance-level predictions.
+    """
+    gold_labels = ["NS" if ex.label == "IR" else ex.label for ex in examples]
+    accs = []
+    prec_s_list, rec_s_list, f1_s_list = [], [], []
+    prec_ns_list, rec_ns_list, f1_ns_list = [], [], []
+    bal_accs = []
+    macro_f1s = []
+
+    for seed in range(num_iterations):
+        checker = RandomGuessFactChecker(seed=seed)
+        preds = [checker.predict(ex.fact, ex.passages) for ex in examples]
+        cm = calculate_confusion_matrix(gold_labels, preds)
+        m = calculate_metrics(cm)
+
+        accs.append(m["accuracy"])
+        bal_accs.append(m["balanced_accuracy"])
+        if m["precision_s"] is not None:
+            prec_s_list.append(m["precision_s"])
+        rec_s_list.append(m["recall_s"])
+        if m["f1_s"] is not None:
+            f1_s_list.append(m["f1_s"])
+
+        if m["precision_ns"] is not None:
+            prec_ns_list.append(m["precision_ns"])
+        rec_ns_list.append(m["recall_ns"])
+        if m["f1_ns"] is not None:
+            f1_ns_list.append(m["f1_ns"])
+
+        if m["macro_f1"] is not None:
+            macro_f1s.append(m["macro_f1"])
+
+    def summarize_series(vals: List[float]) -> Dict[str, float]:
+        arr = np.array(vals)
+        return {
+            "mean": float(np.mean(arr)),
+            "std": float(np.std(arr)),
+            "min": float(np.min(arr)),
+            "max": float(np.max(arr)),
+            "ci_95_lower": float(np.percentile(arr, 2.5)),
+            "ci_95_upper": float(np.percentile(arr, 97.5))
+        }
+
+    return {
+        "num_iterations": num_iterations,
+        "accuracy": summarize_series(accs),
+        "balanced_accuracy": summarize_series(bal_accs),
+        "precision_s": summarize_series(prec_s_list),
+        "recall_s": summarize_series(rec_s_list),
+        "f1_s": summarize_series(f1_s_list),
+        "precision_ns": summarize_series(prec_ns_list),
+        "recall_ns": summarize_series(rec_ns_list),
+        "f1_ns": summarize_series(f1_ns_list),
+        "macro_f1": summarize_series(macro_f1s)
+    }
+
+
+def generate_baseline_performance_table(always_m: Dict[str, Any], random_single_m: Dict[str, Any], random_mc: Dict[str, Any], output_path: str = "output_figures/baselines_performance_table.png") -> str:
+    """
+    Renders high-DPI image table comparing Always Supported against Random Guess single seed and Monte Carlo distributions.
+    """
+    if not _HAS_MATPLOTLIB:
+        return ""
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(11.5, 5.2), dpi=200)
+    ax.axis("off")
+    ax.axis("tight")
+
+    def fmt_pct(val: Optional[float], denom: Optional[str] = None) -> str:
+        if val is None:
+            return "Undefined (0/0)"
+        pct = f"{val * 100:.2f}%"
+        return f"{pct} ({denom})" if denom else pct
+
+    def fmt_mc(stat: Dict[str, float]) -> str:
+        return f"{stat['mean']*100:.2f}% ± {stat['std']*100:.2f}%\n[{stat['ci_95_lower']*100:.2f}%, {stat['ci_95_upper']*100:.2f}%]"
+
+    table_data = [
+        [
+            "Overall Accuracy",
+            f"112/221 = {always_m['accuracy']*100:.2f}%",
+            f"{random_single_m['correct']}/221 = {random_single_m['accuracy']*100:.2f}%",
+            fmt_mc(random_mc["accuracy"]),
+            "Task 1: ≥ 75.0%\nTask 2: ≥ 83.0%"
+        ],
+        [
+            "Balanced Accuracy",
+            f"{always_m['balanced_accuracy']*100:.2f}%",
+            f"{random_single_m['balanced_accuracy']*100:.2f}%",
+            fmt_mc(random_mc["balanced_accuracy"]),
+            "Unbiased Metric"
+        ],
+        [
+            "Precision (Supported - S)",
+            fmt_pct(always_m['precision_s'], "112/221"),
+            fmt_pct(random_single_m['precision_s'], f"{random_single_m['tp']}/{random_single_m['tp']+random_single_m['fp']}"),
+            fmt_mc(random_mc["precision_s"]),
+            "Target: High Precision"
+        ],
+        [
+            "Recall (Supported - S)",
+            fmt_pct(always_m['recall_s'], "112/112"),
+            fmt_pct(random_single_m['recall_s'], f"{random_single_m['tp']}/112"),
+            fmt_mc(random_mc["recall_s"]),
+            "Target: High Recall"
+        ],
+        [
+            "F1-Score (Supported - S)",
+            f"{always_m['f1_s']:.4f} ({always_m['f1_s']*100:.2f}%)",
+            f"{random_single_m['f1_s']:.4f} ({random_single_m['f1_s']*100:.2f}%)",
+            f"{random_mc['f1_s']['mean']:.4f} ± {random_mc['f1_s']['std']:.4f}",
+            "Harmonic Mean"
+        ],
+        [
+            "Precision (Not Supported - NS)",
+            fmt_pct(always_m['precision_ns']),
+            fmt_pct(random_single_m['precision_ns'], f"{random_single_m['tn']}/{random_single_m['tn']+random_single_m['fn']}"),
+            fmt_mc(random_mc["precision_ns"]),
+            "Target: High Precision"
+        ],
+        [
+            "Recall (Not Supported - NS)",
+            fmt_pct(always_m['recall_ns'], "0/109"),
+            fmt_pct(random_single_m['recall_ns'], f"{random_single_m['tn']}/109"),
+            fmt_mc(random_mc["recall_ns"]),
+            "Target: High Recall"
+        ],
+        [
+            "F1-Score (Not Supported - NS)",
+            "Undefined",
+            f"{random_single_m['f1_ns']:.4f} ({random_single_m['f1_ns']*100:.2f}%)",
+            f"{random_mc['f1_ns']['mean']:.4f} ± {random_mc['f1_ns']['std']:.4f}",
+            "Harmonic Mean"
+        ],
+        [
+            "Macro-F1 (Unweighted Average)",
+            "Undefined (0.3364 if 0)",
+            f"{random_single_m['macro_f1']:.4f} ({random_single_m['macro_f1']*100:.2f}%)",
+            f"{random_mc['macro_f1']['mean']:.4f} ± {random_mc['macro_f1']['std']:.4f}",
+            "Balanced Quality"
+        ],
+        [
+            "Evaluated Instances (N)",
+            "221 facts",
+            "221 facts (Seed 42)",
+            "221 facts × 1,000 runs",
+            "221 facts (All preserved)"
+        ]
+    ]
+
+    col_labels = [
+        "Evaluation Metric / Dimension",
+        "Always Supported\n(Majority Baseline)",
+        "Random Guess\n(Seed 42 Single Run)",
+        "Random Guess\n(1,000-Run Monte Carlo)",
+        "Coursework\nTarget / Role"
+    ]
+    col_widths = [0.24, 0.18, 0.19, 0.22, 0.17]
+
+    table = ax.table(cellText=table_data, colLabels=col_labels, loc="center", cellLoc="center", colWidths=col_widths)
+    table.auto_set_font_size(False)
+    table.set_fontsize(8.5)
+    table.scale(1.0, 1.55)
+
+    for (row, col), cell in table.get_celld().items():
+        if col == 0:
+            cell.set_text_props(ha="left")
+        if row == 0:
+            cell.set_facecolor("#1f497d")
+            cell.set_text_props(color="white", weight="bold", ha="center")
+        else:
+            if row % 2 == 1:
+                cell.set_facecolor("#f2f5f9")
+            else:
+                cell.set_facecolor("#ffffff")
+            if col == 4:
+                cell.set_text_props(weight="semibold", color="#78281f")
+            elif col == 1:
+                cell.set_text_props(weight="semibold")
+
+    plt.title("Baseline Benchmark Performance Comparison (FActScore Development Set, N = 221)", fontsize=11, fontweight="bold", pad=12)
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.04, dpi=200)
+    plt.close()
+    return output_path
+
+
+def generate_baseline_confusion_matrices(always_m: Dict[str, Any], random_single_m: Dict[str, Any], output_path: str = "output_figures/baselines_confusion_matrix.png") -> str:
+    """
+    Renders side-by-side heatmaps of confusion matrices for Always Supported and Random Guess baselines.
+    """
+    if not _HAS_MATPLOTLIB:
+        return ""
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8), dpi=200)
+
+    cm_always = np.array(always_m["confusion_matrix"])
+    cm_random = np.array(random_single_m["confusion_matrix"])
+    categories = ["Supported\n(S)", "Not Supported\n(NS)"]
+
+    # Panel A: Always Supported
+    im1 = ax1.imshow(cm_always, cmap="Blues", vmin=0, vmax=125)
+    ax1.set_title(f"Panel A: Always Supported (Majority)\nAccuracy: {always_m['accuracy']*100:.2f}% (112/221)", fontsize=10, fontweight="bold", pad=10)
+    ax1.set_xlabel("Predicted Label", fontsize=9, fontweight="bold")
+    ax1.set_ylabel("True Label (Ground Truth)", fontsize=9, fontweight="bold")
+    ax1.set_xticks([0, 1])
+    ax1.set_yticks([0, 1])
+    ax1.set_xticklabels(categories, fontsize=9)
+    ax1.set_yticklabels(categories, fontsize=9)
+
+    labels_always = [
+        [f"{cm_always[0,0]}\n({cm_always[0,0]/221*100:.1f}%)\n[TP]", f"{cm_always[0,1]}\n({cm_always[0,1]/221*100:.1f}%)\n[FN]"],
+        [f"{cm_always[1,0]}\n({cm_always[1,0]/221*100:.1f}%)\n[FP]", f"{cm_always[1,1]}\n({cm_always[1,1]/221*100:.1f}%)\n[TN]"]
+    ]
+    for i in range(2):
+        for j in range(2):
+            color = "white" if cm_always[i, j] > 60 else "black"
+            ax1.text(j, i, labels_always[i][j], ha="center", va="center", color=color, fontsize=10, fontweight="bold")
+
+    # Panel B: Random Guess (Seed 42)
+    im2 = ax2.imshow(cm_random, cmap="Blues", vmin=0, vmax=125)
+    ax2.set_title(f"Panel B: Random Guess (Seed 42)\nAccuracy: {random_single_m['accuracy']*100:.2f}% ({random_single_m['correct']}/221)", fontsize=10, fontweight="bold", pad=10)
+    ax2.set_xlabel("Predicted Label", fontsize=9, fontweight="bold")
+    ax2.set_ylabel("True Label (Ground Truth)", fontsize=9, fontweight="bold")
+    ax2.set_xticks([0, 1])
+    ax2.set_yticks([0, 1])
+    ax2.set_xticklabels(categories, fontsize=9)
+    ax2.set_yticklabels(categories, fontsize=9)
+
+    labels_random = [
+        [f"{cm_random[0,0]}\n({cm_random[0,0]/221*100:.1f}%)\n[TP]", f"{cm_random[0,1]}\n({cm_random[0,1]/221*100:.1f}%)\n[FN]"],
+        [f"{cm_random[1,0]}\n({cm_random[1,0]/221*100:.1f}%)\n[FP]", f"{cm_random[1,1]}\n({cm_random[1,1]/221*100:.1f}%)\n[TN]"]
+    ]
+    for i in range(2):
+        for j in range(2):
+            color = "white" if cm_random[i, j] > 60 else "black"
+            ax2.text(j, i, labels_random[i][j], ha="center", va="center", color=color, fontsize=10, fontweight="bold")
+
+    # Add shared colorbar and adjust spacing
+    fig.subplots_adjust(wspace=0.35, right=0.88)
+    cbar_ax = fig.add_axes([0.91, 0.18, 0.02, 0.65])
+    cbar = fig.colorbar(im2, cax=cbar_ax)
+    cbar.set_label("Instance Count", fontsize=9, fontweight="bold")
+
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.04, dpi=200)
+    plt.close()
+    return output_path
+
+
+def run_baselines(passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",
+                  dev_path: str = "data/dev_labeled_ChatGPT.jsonl",
+                  figures_dir: str = "output_figures",
+                  outputs_dir: str = "outputs") -> None:
+    """
+    Main entry point for Phase 2 Evaluation Framework and Baseline Benchmarks.
+    Evaluates Always Supported and Random Guess (single run and 1,000-run Monte Carlo).
+    Saves outputs/baseline_results.json and generates high-DPI figures.
+    """
+    print("[Phase 2 Baselines] Loading datasets...")
+    passages_dict, raw_passages = load_passages_data(passages_path)
+    examples, raw_bios = load_dev_examples(dev_path, passages_dict)
+    print(f"[Phase 2 Baselines] Loaded {len(examples)} development fact examples.")
+
+    # 1. Evaluate Always Supported Baseline
+    always_checker = AlwaysEntailedFactChecker()
+    always_metrics, always_preds = evaluate_fact_checker_standalone(examples, always_checker)
+    print(f"[Phase 2 Baselines] Always Supported Accuracy: {always_metrics['correct']}/{always_metrics['total']} = {always_metrics['accuracy']:.4f} ({always_metrics['accuracy']*100:.2f}%)")
+
+    # 2. Evaluate Random Guess Baseline (Single Seed 42 Run)
+    random_single_checker = RandomGuessFactChecker(seed=42)
+    random_single_metrics, random_single_preds = evaluate_fact_checker_standalone(examples, random_single_checker)
+    print(f"[Phase 2 Baselines] Random Guess (Seed 42) Accuracy: {random_single_metrics['correct']}/{random_single_metrics['total']} = {random_single_metrics['accuracy']:.4f} ({random_single_metrics['accuracy']*100:.2f}%)")
+
+    # 3. Evaluate Random Guess Baseline (1,000-Run Monte Carlo)
+    print("[Phase 2 Baselines] Running 1,000 Monte Carlo iterations for Random Guess...")
+    random_mc = run_monte_carlo_random_baseline(examples, num_iterations=1000)
+    acc_mc = random_mc["accuracy"]
+    print(f"[Phase 2 Baselines] Monte Carlo (1,000 runs): Mean={acc_mc['mean']*100:.2f}%, Std={acc_mc['std']*100:.2f}%, Min={acc_mc['min']*100:.2f}%, Max={acc_mc['max']*100:.2f}%, 95% CI=[{acc_mc['ci_95_lower']*100:.2f}%, {acc_mc['ci_95_upper']*100:.2f}%]")
+
+    # 4. Save JSON results
+    os.makedirs(outputs_dir, exist_ok=True)
+    baseline_record = {
+        "dataset_summary": {
+            "total_evaluated_instances": len(examples),
+            "gold_supported_count": sum(1 for ex in examples if ex.label == "S"),
+            "gold_not_supported_count": sum(1 for ex in examples if ex.label in ("NS", "IR"))
+        },
+        "always_supported": always_metrics,
+        "random_guess_seed42": {
+            **random_single_metrics,
+            "seed": 42
+        },
+        "random_guess_monte_carlo": random_mc
+    }
+    json_path = os.path.join(outputs_dir, "baseline_results.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(baseline_record, f, indent=2)
+    print(f"[Phase 2 Baselines] Saved raw benchmark results to '{json_path}'.")
+
+    # 5. Generate high-DPI figures
+    os.makedirs(figures_dir, exist_ok=True)
+    table_fig = os.path.join(figures_dir, "baselines_performance_table.png")
+    cm_fig = os.path.join(figures_dir, "baselines_confusion_matrix.png")
+
+    generate_baseline_performance_table(always_metrics, random_single_metrics, random_mc, table_fig)
+    generate_baseline_confusion_matrices(always_metrics, random_single_metrics, cm_fig)
+    print(f"[Phase 2 Baselines] Generated figures:\n  - {table_fig}\n  - {cm_fig}")
+
+    print("[Phase 2 Baselines] Execution completed successfully.")
+
+
+# ==============================================================================
 # CLI EXECUTION GUARD
 # ==============================================================================
 
 if __name__ == "__main__":
     if "--run-eda" in sys.argv or "--eda" in sys.argv:
         run_eda()
+    elif "--run-baselines" in sys.argv or "--baselines" in sys.argv:
+        run_baselines()
+    elif "--all" in sys.argv:
+        run_eda()
+        run_baselines()
     else:
-        print("Usage: python factcheck.py --run-eda")
+        print("Usage:")
+        print("  python factcheck.py --run-eda        (Phase 1 EDA analysis)")
+        print("  python factcheck.py --run-baselines  (Phase 2 Baseline benchmarks)")
