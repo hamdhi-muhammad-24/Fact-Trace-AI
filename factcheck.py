@@ -105,3 +105,23 @@ _CANONICAL_ENGLISH_STOPWORDS: Set[str] = {
 
 def get_english_stopwords() -> Set[str]:
     return set(_CANONICAL_ENGLISH_STOPWORDS)
+
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+
+def preprocess_tokens(text: str, mode: str = "stem",
+                      stemmer: Optional[PorterStemmer] = None,
+                      lemmatizer: Optional[WordNetLemmatizer] = None,
+                      stops: Optional[Set[str]] = None) -> List[str]:
+    """Tokenizes, lowercases, removes punctuation and stopwords, and applies stemming."""
+    if not text: return []
+    clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', text.lower())
+    tokens = clean.split()
+    if stops:
+        tokens = [t for t in tokens if t not in stops]
+    if mode == "stem":
+        st = stemmer or PorterStemmer()
+        return [st.stem(t) for t in tokens]
+    elif mode == "lemma":
+        lm = lemmatizer or WordNetLemmatizer()
+        return [lm.lemmatize(t) for t in tokens]
+    return tokens
