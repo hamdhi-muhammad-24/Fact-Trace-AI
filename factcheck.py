@@ -75,3 +75,13 @@ def calculate_metrics(confusion_mat: List[List[int]]) -> Dict[str, Any]:
         'confusion_matrix': confusion_mat,
         'total_examples': total
     }
+
+class RandomGuessFactChecker(FactChecker):
+    """Baseline: Predicts S or NS uniformly at random."""
+    def __init__(self, seed: Optional[int] = None):
+        self.rng = np.random.RandomState(seed) if seed is not None else None
+
+    def predict(self, fact: str, passages: List[dict]) -> str:
+        if self.rng is not None:
+            return str(self.rng.choice(["S", "NS"]))
+        return str(np.random.choice(["S", "NS"]))
