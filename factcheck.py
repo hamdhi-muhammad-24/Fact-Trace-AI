@@ -280,3 +280,43 @@ def build_evidence_units(passages: List[dict], mode: str = "sentence") -> List[s
         else:
             raise ValueError(f"Unknown formulation mode '{mode}'.")
     return units
+
+def get_tokens_for_pruning(text: str) -> List[str]:
+    '''Extracts lowercased alphanumeric tokens excluding canonical stopwords.'''
+    clean = re.sub(r'[^a-zA-Z0-9\s]', ' ', text.lower())
+    tokens = clean.split()
+    stops = get_english_stopwords()
+    return [t for t in tokens if t not in stops]
+
+
+def compute_overlap_recall(claim_tokens: List[str], unit_tokens: Set[str]) -> float:
+    '''Computes asymmetric token recall: fraction of claim content words in evidence unit.'''
+    if not claim_tokens:
+        return 0.0
+    matches = sum(1 for t in claim_tokens if t in unit_tokens)
+    return matches / len(claim_tokens)
+
+
+def prune_candidate_units(fact: str, units: List[str], gamma: float = 0.05,
+                          top_k: Optional[int] = None, fallback: str = "conservative") -> List[str]:
+    '''Prunes candidate evidence units based on token recall against claim (gamma = 0.05).'''
+    if not units:
+        return []
+    fact_tokens = get_tokens_for_pruning(fact) or fact.lower().split()
+    scored = []
+    for u in units:
+        u_toks = set(get_tokens_for_pruning(u))
+        rec = compute_overlap_recall(fact_tokens, u_toks)
+        scored.append((u, rec))
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    passed = [u for u, score in scored if score >= gamma]
+    if passed:
+        if top_k is not None and top_k > 0:
+            return passed[:top_k]
+        return passed
+
+    if fallback == "conservative":
+        return [scored[0][0]] if scored else []
+    else:
+        return []
