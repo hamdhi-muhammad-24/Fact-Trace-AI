@@ -218,3 +218,65 @@ class EntailmentModel(object):
                 del inputs, outputs
                 gc.collect()
         return results
+
+def split_into_sentences(text: str) -> List[str]:
+    '''
+    Splits text into sentences deterministically without requiring external model downloads.
+    Protects common abbreviations, honorifics, single initials, and decimal numbers.
+    '''
+    if not text or not text.strip():
+        return []
+    cleaned = text.strip()
+    protected = cleaned
+    abbrs = [
+        r'\bMr\.', r'\bMrs\.', r'\bMs\.', r'\bDr\.', r'\bProf\.', r'\bSr\.', r'\bJr\.',
+        r'\bSt\.', r'\bAve\.', r'\bRd\.', r'\bGen\.', r'\bGov\.', r'\bCapt\.', r'\bCol\.',
+        r'\bLt\.', r'\bRep\.', r'\bSen\.', r'\be\.g\.', r'\bi\.e\.', r'\bvs\.', r'\bU\.S\.',
+        r'\bU\.K\.', r'\bJan\.', r'\bFeb\.', r'\bMar\.', r'\bApr\.', r'\bAug\.', r'\bSept\.',
+        r'\bOct\.', r'\bNov\.', r'\bDec\.', r'\bno\.', r'\bvol\.', r'\bpp\.'
+    ]
+    for abbr in abbrs:
+        protected = re.sub(abbr, lambda m: m.group(0).replace('.', '§§DOT§§'), protected, flags=re.IGNORECASE)
+    protected = re.sub(r'\b([A-Z])\.', r'\1§§DOT§§', protected)
+    protected = re.sub(r'(\d)\.(\d)', r'\1§§DOT§§\2', protected)
+    raw_sents = re.split(r'(?<=[.!?])\s+(?=[A-Z0-9"\'\(\[])', protected)
+    sents = []
+    for s in raw_sents:
+        restored = s.replace('§§DOT§§', '.').strip()
+        if restored:
+            sents.append(restored)
+    return sents if sents else [cleaned]
+
+
+def build_evidence_units(passages: List[dict], mode: str = "sentence") -> List[str]:
+    '''
+    Constructs candidate evidence premise units from retrieved passages.
+    Supported modes: passage, sentence, window2, title_sentence.
+    '''
+    if not passages:
+        return []
+    units = []
+    for p in passages:
+        title = (p.get("title") or "").strip()
+        text = (p.get("text") or "").strip()
+        if not text:
+            continue
+        if mode == "passage":
+            units.append(text)
+        elif mode == "sentence":
+            sents = split_into_sentences(text)
+            units.extend(sents)
+        elif mode == "window2":
+            sents = split_into_sentences(text)
+            if len(sents) <= 1:
+                units.extend(sents)
+            else:
+                for i in range(len(sents) - 1):
+                    units.append(sents[i] + " " + sents[i + 1])
+        elif mode == "title_sentence":
+            sents = split_into_sentences(text)
+            for s in sents:
+                units.append(f"{title}: {s}" if title else s)
+        else:
+            raise ValueError(f"Unknown formulation mode '{mode}'.")
+    return units
