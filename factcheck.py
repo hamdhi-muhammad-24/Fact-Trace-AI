@@ -125,3 +125,19 @@ def preprocess_tokens(text: str, mode: str = "stem",
         lm = lemmatizer or WordNetLemmatizer()
         return [lm.lemmatize(t) for t in tokens]
     return tokens
+
+def compute_similarity_metric(claim_tokens: List[str], passage_tokens: List[str], metric: str = "recall") -> float:
+    """Computes set similarity between claim tokens and passage tokens."""
+    if not claim_tokens: return 0.0
+    c_set = set(claim_tokens)
+    p_set = set(passage_tokens)
+    inter = len(c_set & p_set)
+    if metric == "recall":
+        return inter / len(c_set)
+    elif metric == "jaccard":
+        union = len(c_set | p_set)
+        return inter / union if union > 0 else 0.0
+    elif metric == "dice":
+        total = len(c_set) + len(p_set)
+        return (2.0 * inter) / total if total > 0 else 0.0
+    return 0.0
