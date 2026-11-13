@@ -1,0 +1,282 @@
+{
+  "metrics": {
+    "retrieval_total_records": 5427,
+    "retrieval_total_passage_entries": 23720,
+    "retrieval_unique_fact_queries": 5373,
+    "dev_total_biographies": 31,
+    "dev_total_fact_instances": 221,
+    "dev_unique_fact_strings": 220,
+    "raw_label_counts": {
+      "S": 112,
+      "NS": 93,
+      "IR": 16
+    },
+    "raw_label_percentages": {
+      "S": 50.678733031674206,
+      "NS": 42.081447963800905,
+      "IR": 7.239819004524888
+    },
+    "converted_label_counts": {
+      "S": 112,
+      "NS": 109
+    },
+    "converted_label_percentages": {
+      "S": 50.678733031674206,
+      "NS": 49.321266968325794
+    },
+    "fact_length_words": {
+      "mean": 6.764705882352941,
+      "median": 7.0,
+      "std": 2.1184010723987226,
+      "min": 4,
+      "max": 14
+    },
+    "fact_length_tokens": {
+      "mean": 6.828054298642534,
+      "median": 7.0,
+      "std": 2.2182562791815967,
+      "min": 3,
+      "max": 15
+    },
+    "fact_length_chars": {
+      "mean": 39.01357466063349,
+      "median": 36.0,
+      "min": 16,
+      "max": 99
+    },
+    "class_conditioned_fact_words": {
+      "S_mean": 6.258928571428571,
+      "S_median": 6.0,
+      "NS_mean": 7.284403669724771,
+      "NS_median": 7.0
+    },
+    "dev_total_associated_passage_entries": 692,
+    "passages_per_fact": {
+      "mean": 3.1312217194570136,
+      "median": 3.0,
+      "min": 2,
+      "max": 5,
+      "distribution": {
+        "2": 66,
+        "3": 98,
+        "5": 38,
+        "4": 19
+      }
+    },
+    "dev_unique_passage_texts": 102,
+    "passage_length_words": {
+      "mean": 141.1257225433526,
+      "median": 167.0,
+      "std": 58.59972555789481,
+      "min": 2,
+      "max": 211
+    },
+    "passage_length_tokens": {
+      "mean": 147.1979768786127,
+      "median": 171.0,
+      "min": 3,
+      "max": 221
+    },
+    "length_asymmetry_word_ratio": 20.8620633324956,
+    "facts_with_numbers_count": 39,
+    "facts_with_numbers_percentage": 17.647058823529413,
+    "topic_breakdown": {
+      "Marianne McAndrew": {
+        "total": 6,
+        "S": 1,
+        "NS": 5
+      },
+      "Gerhard Fischer (inventor)": {
+        "total": 8,
+        "S": 5,
+        "NS": 3
+      },
+      "Joey D. Vieira": {
+        "total": 5,
+        "S": 2,
+        "NS": 3
+      },
+      "Taral Hicks": {
+        "total": 11,
+        "S": 10,
+        "NS": 1
+      },
+      "Vincenzo Tusa": {
+        "total": 6,
+        "S": 0,
+        "NS": 6
+      },
+      "Jean Daull\u00e9": {
+        "total": 7,
+        "S": 5,
+        "NS": 2
+      },
+      "Fernando (footballer, born 1984)": {
+        "total": 5,
+        "S": 0,
+        "NS": 5
+      },
+      "Ko Itakura": {
+        "total": 6,
+        "S": 3,
+        "NS": 3
+      },
+      "Thomas Houghton (rugby league)": {
+        "total": 6,
+        "S": 0,
+        "NS": 6
+      },
+      "Mike Trivisonno": {
+        "total": 8,
+        "S": 5,
+        "NS": 3
+      },
+      "John Estes": {
+        "total": 8,
+        "S": 0,
+        "NS": 8
+      },
+      "Alma Katsu": {
+        "total": 7,
+        "S": 6,
+        "NS": 1
+      },
+      "Rennie Fritchie, Baroness Fritchie": {
+        "total": 5,
+        "S": 5,
+        "NS": 0
+      },
+      "Manuel Salazar (footballer)": {
+        "total": 8,
+        "S": 0,
+        "NS": 8
+      },
+      "Malcolm Hedding": {
+        "total": 5,
+        "S": 3,
+        "NS": 2
+      },
+      "Hibo Wardere": {
+        "total": 8,
+        "S": 6,
+        "NS": 2
+      },
+      "Nisar Ahmad Kakru": {
+        "total": 7,
+        "S": 0,
+        "NS": 7
+      },
+      "Don Featherstone (artist)": {
+        "total": 6,
+        "S": 6,
+        "NS": 0
+      },
+      "Travis Oliphant": {
+        "total": 8,
+        "S": 2,
+        "NS": 6
+      },
+      "Rob Furlong": {
+        "total": 7,
+        "S": 3,
+        "NS": 4
+      },
+      "Jessica Barboza": {
+        "total": 7,
+        "S": 6,
+        "NS": 1
+      },
+      "Daniel Carvalho": {
+        "total": 5,
+        "S": 4,
+        "NS": 1
+      },
+      "Florencia Bertotti": {
+        "total": 8,
+        "S": 3,
+        "NS": 5
+      },
+      "Jonathan Haagensen": {
+        "total": 9,
+        "S": 7,
+        "NS": 2
+      },
+      "Kerser": {
+        "total": 5,
+        "S": 2,
+        "NS": 3
+      },
+      "Botak Chin": {
+        "total": 8,
+        "S": 1,
+        "NS": 7
+      },
+      "Owen Wright (surfer)": {
+        "total": 5,
+        "S": 0,
+        "NS": 5
+      },
+      "Shahnaz Pahlavi": {
+        "total": 8,
+        "S": 4,
+        "NS": 4
+      },
+      "Jidenna": {
+        "total": 5,
+        "S": 2,
+        "NS": 3
+      },
+      "Roselyn S\u00e1nchez": {
+        "total": 6,
+        "S": 3,
+        "NS": 3
+      },
+      "Ji Sung": {
+        "total": 18,
+        "S": 18,
+        "NS": 0
+      }
+    }
+  },
+  "data_quality_audit": {
+    "empty_or_missing_fact_texts": 0,
+    "facts_with_empty_passage_lists": 0,
+    "passages_with_missing_titles": 0,
+    "passages_with_empty_text": 0,
+    "facts_with_duplicate_passages": 0,
+    "duplicate_fact_strings_count": 1,
+    "duplicate_fact_details": [
+      {
+        "fact": "Cleveland is in Ohio.",
+        "occurrences": 2,
+        "indices": [
+          5,
+          63
+        ],
+        "zero_based_indices": [
+          5,
+          63
+        ],
+        "one_based_positions": [
+          6,
+          64
+        ],
+        "raw_labels": [
+          "IR",
+          "S"
+        ],
+        "converted_labels": [
+          "NS",
+          "S"
+        ],
+        "has_label_conflict": true
+      }
+    ],
+    "raw_lines_passages_file": 5427,
+    "valid_json_in_passages_file": 5427,
+    "malformed_records_in_passages_file": 0,
+    "raw_lines_dev_file": 31,
+    "valid_json_in_dev_file": 31,
+    "malformed_records_in_dev_file": 0
+  }
+}

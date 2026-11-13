@@ -1,0 +1,225 @@
+{
+  "metadata": {
+    "evaluation_dataset": "data/dev_labeled_ChatGPT.jsonl",
+    "source_passages": "data/passages_bm25_ChatGPT_humfacts.jsonl",
+    "total_facts_evaluated": 221,
+    "class_balance": {
+      "supported": 112,
+      "not_supported": 109
+    },
+    "description": "Master cross-paradigm evaluation and comparative audit for CM3604 Phase 8."
+  },
+  "model_comparison_records": [
+    {
+      "id": "random_guess",
+      "name": "Random Guess (seed=42)",
+      "paradigm": "Stochastic Baseline",
+      "evidence_units": "None (Null)",
+      "candidate_pairs": 0,
+      "decision_rule": "Uniform Random Bernoulli (p=0.5)",
+      "dev_acc": 50.2262443438914,
+      "dev_correct": 111,
+      "dev_total": 221,
+      "oof_acc": null,
+      "s_prec": 50.877192982456144,
+      "s_rec": 51.78571428571429,
+      "s_f1": 0.5132743362831859,
+      "ns_prec": 49.532710280373834,
+      "ns_rec": 48.62385321100918,
+      "ns_f1": 0.49074074074074076,
+      "macro_f1": 0.5020075385119633,
+      "confusion_matrix": [
+        [
+          58,
+          54
+        ],
+        [
+          56,
+          53
+        ]
+      ],
+      "runtime": "0.0063s",
+      "throughput": "35039 facts/s (0.030 ms/f)",
+      "color": "#64748B",
+      "primary_strength": "Zero parameter overhead; provides uninformative stochastic lower bound.",
+      "primary_vulnerability": "Completely blind to semantic evidence and fact content."
+    },
+    {
+      "id": "always_supported",
+      "name": "Always Supported",
+      "paradigm": "Majority Class Baseline",
+      "evidence_units": "None (Null)",
+      "candidate_pairs": 0,
+      "decision_rule": "Constant y = 'S'",
+      "dev_acc": 50.678733031674206,
+      "dev_correct": 112,
+      "dev_total": 221,
+      "oof_acc": null,
+      "s_prec": 50.678733031674206,
+      "s_rec": 100.0,
+      "s_f1": 0.6726726726726726,
+      "ns_prec": null,
+      "ns_rec": 0.0,
+      "ns_f1": null,
+      "macro_f1": null,
+      "confusion_matrix": [
+        [
+          112,
+          0
+        ],
+        [
+          109,
+          0
+        ]
+      ],
+      "runtime": "0.0001s",
+      "throughput": "3082286 facts/s (0.000 ms/f)",
+      "color": "#94A3B8",
+      "primary_strength": "Maximizes Supported recall (100.0%); trivial zero-rule baseline without evaluating passages.",
+      "primary_vulnerability": "Total failure on Not Supported class (0.0% precision, recall, F1); blind to evidence."
+    },
+    {
+      "id": "task1_word_overlap",
+      "name": "Task 1: Word Overlap (P4 Porter-Stemmed)",
+      "paradigm": "Lexical Matching Heuristic",
+      "evidence_units": "Max Passages (692)",
+      "candidate_pairs": 692,
+      "decision_rule": "Thresholding on Word Recall (\u03b8* = 0.64)",
+      "dev_acc": 85.06787330316742,
+      "dev_correct": 188,
+      "dev_total": 221,
+      "oof_acc": 85.06787330316742,
+      "s_prec": 85.58558558558559,
+      "s_rec": 84.82142857142857,
+      "s_f1": 0.852017937219731,
+      "ns_prec": 84.54545454545455,
+      "ns_rec": 85.3211009174312,
+      "ns_f1": 0.8493150684931506,
+      "macro_f1": 0.8506665028564409,
+      "confusion_matrix": [
+        [
+          95,
+          17
+        ],
+        [
+          16,
+          93
+        ]
+      ],
+      "runtime": "1.29s",
+      "throughput": "171.8 facts/s (5.8 ms/f)",
+      "color": "#2563EB",
+      "primary_strength": "Fast CPU inference; strong surface lexical recall and numerical entity alignment.",
+      "primary_vulnerability": "Lexical overlap deceived by topic words (16 FPs); lacks semantic negation awareness."
+    },
+    {
+      "id": "task2_deberta_v3",
+      "name": "Task 2: DeBERTa-v3 Entailment",
+      "paradigm": "Deep Cross-Attention NLI",
+      "evidence_units": "Lexically Pruned Sentences (1,511)",
+      "candidate_pairs": 1511,
+      "decision_rule": "Optimal Entailment Thresholding (\u03c4* = 0.33)",
+      "dev_acc": 84.16289592760181,
+      "dev_correct": 186,
+      "dev_total": 221,
+      "oof_acc": 82.80542986425338,
+      "s_prec": 91.39784946236558,
+      "s_rec": 75.89285714285714,
+      "s_f1": 0.8292682926829268,
+      "ns_prec": 78.90625,
+      "ns_rec": 92.66055045871559,
+      "ns_f1": 0.8523206751054851,
+      "macro_f1": 0.840794483894206,
+      "confusion_matrix": [
+        [
+          85,
+          27
+        ],
+        [
+          8,
+          101
+        ]
+      ],
+      "runtime": "227.77s",
+      "throughput": "6.63 pairs/s (150.7 ms/p)",
+      "color": "#0F766E",
+      "primary_strength": "Deep semantic reasoning; high NS recall (92.66%), NS precision (78.91%), and low false positives (8 FPs).",
+      "primary_vulnerability": "Higher computational latency (CPU); false negatives on multi-hop/numeric claims (27 FNs)."
+    }
+  ],
+  "comparative_error_analysis": {
+    "total_facts": 221,
+    "task1_error_count": 33,
+    "task2_error_count": 35,
+    "prediction_agreement_count": 183,
+    "prediction_agreement_percentage": 82.81,
+    "both_correct_count": 168,
+    "both_correct_percentage": 76.02,
+    "common_failure_count": 15,
+    "common_failure_indices": [
+      2,
+      5,
+      9,
+      99,
+      109,
+      124,
+      133,
+      141,
+      144,
+      161,
+      162,
+      164,
+      165,
+      189,
+      209
+    ],
+    "task1_only_errors_count": 18,
+    "task1_only_error_indices": [
+      0,
+      48,
+      65,
+      67,
+      104,
+      107,
+      108,
+      125,
+      146,
+      152,
+      169,
+      173,
+      174,
+      192,
+      193,
+      195,
+      196,
+      207
+    ],
+    "task2_only_errors_count": 20,
+    "task2_only_error_indices": [
+      8,
+      34,
+      40,
+      41,
+      77,
+      78,
+      79,
+      80,
+      120,
+      121,
+      160,
+      168,
+      208,
+      210,
+      211,
+      212,
+      214,
+      216,
+      218,
+      220
+    ],
+    "oracle_union_correct_count": 206,
+    "oracle_union_accuracy_percentage": 93.21,
+    "oracle_union_diagnostic_note": "Theoretical diagnostic upper bound assuming an oracle selector choosing the correct prediction if either model is correct; not a trained hybrid model.",
+    "synthesis_insight": "Task 1 (Word Overlap) and Task 2 (DeBERTa-v3) exhibit complementary error profiles: Task 2 achieves exceptional sensitivity on Not Supported claims (92.66% NS recall, 78.91% NS precision, only 8 FPs vs Task 1's 16 FPs), successfully rejecting lexical distractors. Conversely, Task 1 maintains higher recall on multi-hop and numeric Supported claims (17 FNs vs Task 2's 27 FNs). Only 15 facts represent common failures across both paradigms, and an oracle union yields 93.21% accuracy as a diagnostic theoretical upper bound (not a trained hybrid model), highlighting strong potential for hybrid lexical-neural fact-checking architectures."
+  }
+}
