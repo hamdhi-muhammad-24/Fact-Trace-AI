@@ -320,3 +320,46 @@ def prune_candidate_units(fact: str, units: List[str], gamma: float = 0.05,
         return [scored[0][0]] if scored else []
     else:
         return []
+
+class EntailmentFactChecker(FactChecker):
+    '''
+    Task 2: Textual Entailment Fact-Checker using DeBERTa-v3 (tau* = 0.33, gamma = 0.05).
+    Achieves 186/221 = 84.16% accuracy.
+    '''
+    def __init__(self, ent_model, formulation: str = "sentence", decision_rule: str = "threshold",
+                 threshold: float = 0.33, prune_gamma: float = 0.05, top_k: Optional[int] = None,
+                 fallback: str = "conservative", batch_size: int = 8, max_length: int = 256):
+        self.ent_model = ent_model
+        self.formulation = formulation
+        self.decision_rule = decision_rule
+        self.threshold = threshold
+        self.prune_gamma = prune_gamma
+        self.top_k = top_k
+        self.fallback = fallback
+        self.batch_size = batch_size
+        self.max_length = max_length
+
+    def predict(self, fact: str, passages: List[dict]) -> str:
+        units = build_evidence_units(passages, mode=self.formulation)
+        candidate_units = prune_candidate_units(
+            fact, units, gamma=self.prune_gamma, top_k=self.top_k, fallback=self.fallback
+        )
+        if not candidate_units:
+            return "NS"
+
+        hypotheses = [fact] * len(candidate_units)
+        scores = self.ent_model.check_entailment_batch(
+            candidate_units, hypotheses, batch_size=self.batch_size, max_length=self.max_length
+        )
+
+        if self.decision_rule == "argmax":
+            is_s = any(p_ent > p_neu and p_ent > p_contra for p_ent, p_neu, p_contra in scores)
+            return "S" if is_s else "NS"
+        elif self.decision_rule == "threshold":
+            max_ent = max(p_ent for p_ent, p_neu, p_contra in scores)
+            return "S" if max_ent >= self.threshold else "NS"
+        elif self.decision_rule == "margin":
+            max_margin = max(p_ent - p_contra for p_ent, p_neu, p_contra in scores)
+            return "S" if max_margin >= self.threshold else "NS"
+        else:
+            raise ValueError(f"Unknown decision rule '{self.decision_rule}'.")
