@@ -85,3 +85,8 @@ class RandomGuessFactChecker(FactChecker):
         if self.rng is not None:
             return str(self.rng.choice(["S", "NS"]))
         return str(np.random.choice(["S", "NS"]))
+
+class AlwaysEntailedFactChecker(FactChecker):
+    """Majority Baseline: Always predicts Supported (S)."""
+    def predict(self, fact: str, passages: List[dict]) -> str:
+        return "S"
