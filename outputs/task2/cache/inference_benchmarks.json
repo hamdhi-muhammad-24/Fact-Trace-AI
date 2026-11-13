@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "device": "CPU",
+    "model_name": "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
+    "torch_version": "2.5.0+cpu",
+    "description": "Measured live CPU inference runs; unavailable timings are omitted."
+  },
+  "batch_size_pilot_benchmarks": [
+    {
+      "batch_size": 1,
+      "pairs": 75,
+      "seconds": 26.426276899990626,
+      "ms_per_pair": 352.3503586665417,
+      "provenance": "Measured live CPU inference on a 75-pair pilot"
+    },
+    {
+      "batch_size": 4,
+      "pairs": 75,
+      "seconds": 11.886709499987774,
+      "ms_per_pair": 158.48945999983698,
+      "provenance": "Measured live CPU inference on a 75-pair pilot"
+    },
+    {
+      "batch_size": 8,
+      "pairs": 75,
+      "seconds": 9.572760999959428,
+      "ms_per_pair": 127.63681333279237,
+      "provenance": "Measured live CPU inference on a 75-pair pilot"
+    },
+    {
+      "batch_size": 16,
+      "pairs": 75,
+      "seconds": 9.937795099976938,
+      "ms_per_pair": 132.50393466635919,
+      "provenance": "Measured live CPU inference on a 75-pair pilot"
+    }
+  ],
+  "full_dataset_benchmarks": {
+    "all_retained": {
+      "evaluated_instances": 1511,
+      "unique_pairs": 1511,
+      "batch_size": 8,
+      "wall_clock_seconds": 227.77134350000415,
+      "throughput_pairs_per_sec": 6.633845929788672,
+      "ms_per_pair": 150.74212011912914,
+      "provenance": "Measured live CPU forward passes in this cache rebuild"
+    },
+    "unpruned_full": {
+      "evaluated_instances": 4880,
+      "unique_pairs": 4880,
+      "batch_size": 8,
+      "wall_clock_seconds": 601.4739555999986,
+      "throughput_pairs_per_sec": 8.113402009455205,
+      "ms_per_pair": 123.25285975409807,
+      "provenance": "Measured live CPU forward passes in this cache rebuild"
+    },
+    "top3_pruned": {
+      "evaluated_instances": 580,
+      "unique_pairs": 577,
+      "batch_size": 8,
+      "wall_clock_seconds": 93.51734279998345,
+      "throughput_pairs_per_sec": 6.202058170541846,
+      "ms_per_pair": 161.23679793100595,
+      "provenance": "Measured live CPU forward passes in this cache rebuild"
+    }
+  }
+}
