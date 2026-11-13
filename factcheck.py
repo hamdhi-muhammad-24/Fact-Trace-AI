@@ -161,3 +161,60 @@ class WordRecallThresholdFactChecker(FactChecker):
             if score >= self.threshold:
                 return "S"
         return "NS"
+
+import torch
+import gc
+
+class EntailmentModel(object):
+    '''
+    Wrapper for HuggingFace DeBERTa-v3 NLI model (MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli).
+    Provides memory-safe single and batched inference with explicit tensor lifecycle management.
+    '''
+    def __init__(self, model, tokenizer, cuda: bool = False):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.cuda = cuda
+        if self.model is not None:
+            self.model.eval()
+            id2label = getattr(self.model.config, 'id2label', {0: 'entailment', 1: 'neutral', 2: 'contradiction'})
+            self.ent_idx = 0
+            self.neu_idx = 1
+            self.contra_idx = 2
+            for idx, label in id2label.items():
+                lbl = str(label).lower()
+                if 'entail' in lbl:
+                    self.ent_idx = int(idx)
+                elif 'contra' in lbl:
+                    self.contra_idx = int(idx)
+                elif 'neut' in lbl:
+                    self.neu_idx = int(idx)
+        else:
+            self.ent_idx = 0
+            self.neu_idx = 1
+            self.contra_idx = 2
+
+    def check_entailment(self, premise: str, hypothesis: str, max_length: int = 256) -> Tuple[float, float, float]:
+        '''Computes entailment probabilities for a single pair: (p_ent, p_neu, p_contra).'''
+        res = self.check_entailment_batch([premise], [hypothesis], batch_size=1, max_length=max_length)
+        return res[0]
+
+    def check_entailment_batch(self, premises: List[str], hypotheses: List[str],
+                               batch_size: int = 8, max_length: int = 256) -> List[Tuple[float, float, float]]:
+        '''Memory-safe batched CPU inference with torch.no_grad() and gc.collect().'''
+        if not premises:
+            return []
+        results = []
+        with torch.no_grad():
+            for i in range(0, len(premises), batch_size):
+                b_prem = premises[i:i+batch_size]
+                b_hyp = hypotheses[i:i+batch_size]
+                inputs = self.tokenizer(b_prem, b_hyp, return_tensors='pt', truncation=True, padding=True, max_length=max_length)
+                if self.cuda:
+                    inputs = {key: value.to('cuda') for key, value in inputs.items()}
+                outputs = self.model(**inputs)
+                probs = torch.softmax(outputs.logits, dim=-1).cpu().tolist()
+                for p in probs:
+                    results.append((float(p[self.ent_idx]), float(p[self.neu_idx]), float(p[self.contra_idx])))
+                del inputs, outputs
+                gc.collect()
+        return results
