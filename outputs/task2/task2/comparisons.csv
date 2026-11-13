@@ -1,0 +1,7 @@
+formulation,pairs_evaluated,accuracy,f1_s,f1_ns,macro_f1
+Full Passage (Baseline),692,77.83%,0.7742,0.7822,0.7782
+Sentence (Unpruned Baseline),4880,85.07%,0.8493,0.8520,0.8507
+"Sentence (All-Retained, γ=0.05)",1519,84.16%,0.8293,0.8523,0.8408
+"Sentence (Top-3, γ=0.10)",580,83.26%,0.8141,0.8477,0.8309
+"2-Sentence Window (γ=0.10, k=3)",600,83.26%,0.8177,0.8452,0.8315
+"Title-Sentence (γ=0.10, k=3)",581,81.90%,0.8020,0.8333,0.8177

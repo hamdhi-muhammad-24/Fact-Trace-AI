@@ -1,0 +1,75 @@
+{
+  "model_name": "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
+  "device": "CPU",
+  "torch_version": "2.5.0+cpu",
+  "source_dataset": "data/dev_labeled_ChatGPT.jsonl",
+  "raw_dataset_sha256": "e3fc8f4d1e6377009782d3581bce4817a37b5725adfc3eaaa1ad760829eac172",
+  "source_passages": "data/passages_bm25_ChatGPT_humfacts.jsonl",
+  "passages_sha256": "cade871bbc4531a651588fbbe2232a03bf305e2e1c4f7cf33a48b41db961c264",
+  "total_facts": 221,
+  "facts_sha256": "bebb6d4f813add19a3292f8cc950a03ce9919cf8422a377b4b7189d6b6219f5f",
+  "tokenizer_settings": {
+    "padding": true,
+    "truncation": true,
+    "max_lengths": {
+      "sentence_level": 256,
+      "passage_level": 512
+    }
+  },
+  "caches": {
+    "sweep1519": {
+      "filename": "pair_probs_sweep1519.json",
+      "formulation": "sweep1519",
+      "evaluated_instances": 1511,
+      "unique_pairs": 1511,
+      "max_length": 256,
+      "file_sha256": "f274b9d6f2b7b687848d5a4e0633c9775d2846310dfc991ce84f9f6d803dc579",
+      "binding_sha256": "95f6f834b363e541b722471ecb3d1a90879e2e4ab3304bdef3fff8485af4b636",
+      "provenance": "Fresh CPU forward passes (B=8, max_length=256)",
+      "pairs_sha256": "ce3f4adcae5a7747d0a402992f142685f1f24989f6806ad5067c36e4a192e807"
+    },
+    "unpruned_full": {
+      "filename": "pair_probs_unpruned_full.json",
+      "formulation": "unpruned_full",
+      "evaluated_instances": 4880,
+      "unique_pairs": 4880,
+      "max_length": 256,
+      "file_sha256": "15cf0b9e7655e4e2c37177d64028dffb41490330c607c1bfb1014ca446b6fc2c",
+      "binding_sha256": "dc973a5222a325969b429e5cf7b6ad75063c6c6b8a4f1ae91b0064144a0a07d8",
+      "provenance": "Fresh CPU forward passes (B=8, max_length=256)"
+    },
+    "passage": {
+      "filename": "pair_probs_passage.json",
+      "formulation": "passage",
+      "evaluated_instances": 692,
+      "unique_pairs": 692,
+      "max_length": 512,
+      "file_sha256": "9363287accb9d8ba6c449becfa0596a2b9e329566768b0c2c432bd755cd3daec",
+      "binding_sha256": "fc4f80cf75224a2ba90226149daff1442f15224b9b196b13f70762be488b16c0",
+      "provenance": "Fresh CPU forward passes (B=4, max_length=512)",
+      "pairs_sha256": "8cfb3fc18bb7d32c529f39490d079c88d9b82e31d33b2ae110b31b562396a165"
+    },
+    "window2": {
+      "filename": "pair_probs_window2.json",
+      "formulation": "window2",
+      "evaluated_instances": 600,
+      "unique_pairs": 600,
+      "max_length": 256,
+      "file_sha256": "02215fa0bbcb9ce595879769c86c78f31b8ab0227c87436154265eca6122523d",
+      "binding_sha256": "f09c67917ac376d41a32b1d8899f8adcc7c19970ce860f55916888c75fb1f0e1",
+      "provenance": "Fresh CPU forward passes (B=8, max_length=256)",
+      "pairs_sha256": "c7461f61a6c2ecc75e012e38c53b37db656327474cdc7d2ad45414adc17bc274"
+    },
+    "title_sentence": {
+      "filename": "pair_probs_title_sentence.json",
+      "formulation": "title_sentence",
+      "evaluated_instances": 581,
+      "unique_pairs": 581,
+      "max_length": 256,
+      "file_sha256": "cc97551ef1973acbfdf6b459b6671079af4c51b4a1ea934024b1d042e690c267",
+      "binding_sha256": "35b2e1070e04530b518361b459fbeb1ccb3ed5f72bc60760754c9bf3255df8d8",
+      "provenance": "Fresh CPU forward passes (B=8, max_length=256)",
+      "pairs_sha256": "b0e4f3bde8c573e405c9e12af658169dc54c7d930deb5200e3381b2fb7d498e1"
+    }
+  }
+}
