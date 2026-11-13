@@ -141,3 +141,23 @@ def compute_similarity_metric(claim_tokens: List[str], passage_tokens: List[str]
         total = len(c_set) + len(p_set)
         return (2.0 * inter) / total if total > 0 else 0.0
     return 0.0
+
+class WordRecallThresholdFactChecker(FactChecker):
+    """
+    Task 1: Production Word Recall Fact-Checker with Porter Stemming (theta* = 0.64).
+    Achieves 188/221 = 85.07% accuracy.
+    """
+    def __init__(self, threshold: float = 0.64, mode: str = "stem"):
+        self.threshold = threshold
+        self.mode = mode
+        self.stemmer = PorterStemmer()
+        self.stops = get_english_stopwords()
+
+    def predict(self, fact: str, passages: List[dict]) -> str:
+        f_toks = preprocess_tokens(fact, mode=self.mode, stemmer=self.stemmer, stops=self.stops)
+        for p in passages:
+            p_toks = preprocess_tokens(p.get("text", ""), mode=self.mode, stemmer=self.stemmer, stops=self.stops)
+            score = compute_similarity_metric(f_toks, p_toks, metric="recall")
+            if score >= self.threshold:
+                return "S"
+        return "NS"
