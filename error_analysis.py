@@ -1,110 +1,1472 @@
-﻿# error_analysis.py
-'''CM3604 Deep Learning Coursework — Task 3 Error Analysis Workflow'''
-import os, sys, json, csv
+# error_analysis.py
+"""
+CM3604 Deep Learning Coursework — Task 3 Error Analysis & Manual Review Workflow
+Identifies incorrect Task 2 DeBERTa-v3 predictions, recovers original human
+annotations (S / NS / IR) alongside binary evaluation labels, maps selected
+evidence premises back to retrieved passages, cleans sentence markers for display
+while retaining untouched source text, preserves manual human reviews safely,
+and separates provisional category suggestions from confirmed human-reviewed
+statistics and visualizations.
 
-if __name__ == '__main__':
-    print('Error analysis module initialized.')
+This module is a standalone diagnostic and manual-review utility separated
+from the required factcheck.py submission module and never alters model weights,
+preprocessing, predictions, thresholds, or source datasets.
+"""
 
-CATEGORY_DEFINITIONS: List[Dict[str, str]] = [
-    {
-        "category_id": "PRAGMATIC_GAP",
-        "title": "Meaning and Negation Errors",
-        "short_label": "Meaning and\nNegation Errors",
-        "definition": "The model may misinterpret word meanings, descriptive or evaluative expressions, sentence relationships, qualifications, or negation clauses."
-    },
-    {
-        "category_id": "RETRIEVAL_MISSING",
-        "title": "Missing or Conflicting Evidence",
-        "short_label": "Missing or Conflicting\nEvidence",
-        "definition": "Retrieved passages lack required information to establish the claim, or contain different or conflicting details across retrieved biographical text."
-    },
-    {
-        "category_id": "STRUCTURAL_FORMAT",
-        "title": "Structured Information Errors",
-        "short_label": "Structured Information\nErrors",
-        "definition": "Relevant information appears in bibliographies, lists, tables, or section headings that may be difficult for sentence-level textual entailment."
-    },
-    {
-        "category_id": "ANNOTATION_NOISE",
-        "title": "Annotation and Evidence Conflicts",
-        "short_label": "Annotation and\nEvidence Conflicts",
-        "definition": "Available evidence appears to support an interpretation differing from the original human annotation (e.g., IR converted to NS) or context-dependent labeling."
-    }
-]
+import os
+import re
+import json
+import time
+import csv
+import shutil
+import argparse
+import textwrap
+from datetime import datetime
+from typing import List, Dict, Set, Any, Optional, Tuple
+import numpy as np
 
-CATEGORY_ID_TO_TITLE = {c["category_id"]: c["title"] for c in CATEGORY_DEFINITIONS}
-CATEGORY_TITLE_TO_ID = {c["title"]: c["category_id"] for c in CATEGORY_DEFINITIONS}
+# Safe optional Matplotlib import with headless Agg backend
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+    _HAS_MATPLOTLIB = True
+except ImportError:
+    _HAS_MATPLOTLIB = False
 
-def clean_evidence_text(text: str) -> str:
-    '''Removes sentence markers <s> and </s> and normalizes whitespace.'''
-    if not text: return ""
-    cleaned = re.sub(r"\s*</?s>\s*", " ", text)
-    return re.sub(r"\s+", " ", cleaned).strip()
+# Import shared dataset & sentence helpers from root factcheck.py (read-only)
+from factcheck import load_passages_data, load_dev_examples, split_into_sentences
 
-def map_selected_premise_to_passages(selected_premise: str, passages: list) -> dict:
-    '''Matches selected premise sentence back to exact retrieved passage title.'''
-    target = (selected_premise or "").strip()
-    if not passages or not target:
-        return {"selected_evidence_title": "Not reliably identified", "passage_matches": ["Uncertain"] * len(passages)}
-    matched_indices = []
-    for p_idx, p in enumerate(passages):
-        raw_text = p.get("text", "")
-        if target in raw_text:
-            matched_indices.append(p_idx)
-    if len(matched_indices) == 1:
-        hit = matched_indices[0]
-        title = str(passages[hit].get("title", "")).strip() or "Not reliably identified"
-        return {"selected_evidence_title": title, "passage_matches": ["Yes" if i == hit else "No" for i in range(len(passages))]}
-    return {"selected_evidence_title": "Not reliably identified", "passage_matches": ["Uncertain"] * len(passages)}
+
+# ==============================================================================
+# AUTHORITATIVE TASK 3 TAXONOMY & SCHEMA CONSTANTS
+# ==============================================================================
 
 CATEGORY_DEFINITIONS: List[Dict[str, str]] = [
     {
         "category_id": "PRAGMATIC_GAP",
         "title": "Meaning and Negation Errors",
         "short_label": "Meaning and\nNegation Errors",
-        "definition": "The model may misinterpret word meanings, descriptive or evaluative expressions, sentence relationships, qualifications, or negation clauses."
+        "definition": (
+            "The model may misinterpret word meanings, descriptive or evaluative expressions, "
+            "sentence relationships, qualifications, or negation clauses."
+        ),
     },
     {
         "category_id": "RETRIEVAL_MISSING",
         "title": "Missing or Conflicting Evidence",
         "short_label": "Missing or Conflicting\nEvidence",
-        "definition": "Retrieved passages lack required information to establish the claim, or contain different or conflicting details across retrieved biographical text."
+        "definition": (
+            "Retrieved passages lack required information to establish the claim, or contain "
+            "different or conflicting details across retrieved biographical text."
+        ),
     },
     {
         "category_id": "STRUCTURAL_FORMAT",
         "title": "Structured Information Errors",
         "short_label": "Structured Information\nErrors",
-        "definition": "Relevant information appears in bibliographies, lists, tables, or section headings that may be difficult for sentence-level textual entailment."
+        "definition": (
+            "Relevant information appears in bibliographies, lists, tables, or section headings "
+            "that may be difficult for sentence-level textual entailment."
+        ),
     },
     {
         "category_id": "ANNOTATION_NOISE",
         "title": "Annotation and Evidence Conflicts",
         "short_label": "Annotation and\nEvidence Conflicts",
-        "definition": "Available evidence appears to support an interpretation differing from the original human annotation (e.g., IR converted to NS) or context-dependent labeling."
-    }
+        "definition": (
+            "Available evidence appears to support an interpretation differing from the original "
+            "human annotation (e.g., IR converted to NS) or context-dependent labeling."
+        ),
+    },
 ]
 
-CATEGORY_ID_TO_TITLE = {c["category_id"]: c["title"] for c in CATEGORY_DEFINITIONS}
-CATEGORY_TITLE_TO_ID = {c["title"]: c["category_id"] for c in CATEGORY_DEFINITIONS}
+CATEGORY_ID_TO_TITLE: Dict[str, str] = {c["category_id"]: c["title"] for c in CATEGORY_DEFINITIONS}
+CATEGORY_TITLE_TO_ID: Dict[str, str] = {c["title"]: c["category_id"] for c in CATEGORY_DEFINITIONS}
+ALLOWED_CATEGORY_TITLES: List[str] = [c["title"] for c in CATEGORY_DEFINITIONS]
+ALLOWED_CATEGORY_SET: Set[str] = set(ALLOWED_CATEGORY_TITLES)
+
+ALLOWED_EVIDENCE_ASSESSMENTS: Set[str] = {
+    "Supports",
+    "Contradicts",
+    "Insufficient",
+    "Conflicting",
+    "Unclear",
+}
+
+ALLOWED_REVIEW_STATUSES: Set[str] = {
+    "Pending",
+    "Reviewed",
+    "Needs Further Checking",
+}
+
+# Initial proposed category suggestions keyed by stable internal category IDs.
+# Retained strictly as unverified starting suggestions (never treated as manual decisions).
+PROPOSED_CATEGORY_INDEX_SETS: Dict[str, Set[int]] = {
+    "PRAGMATIC_GAP": {2, 34, 40, 168, 8, 99, 120, 211, 212, 214, 216, 218, 220},
+    "RETRIEVAL_MISSING": {9, 121, 141, 160, 161, 162, 164, 165, 189, 208, 209, 210},
+    "STRUCTURAL_FORMAT": {41, 77, 78, 79, 80, 144},
+    "ANNOTATION_NOISE": {5, 109, 124, 133},
+}
+
+# Known autogenerated strings from legacy implementations; must never count as genuine manual reviews
+LEGACY_AUTOGEN_RATIONALES: Set[str] = {
+    "Claim uses evaluative or pragmatic language (e.g., 'popular', 'known for', 'pastor for many years') that is not strictly entailed logically, or exhibits parenthetical negation blindness.",
+    "Key factual entities, numbers, or dates (e.g., divorce year, birth location) were not retrieved in any BM25 passage, depriving the model of necessary premise evidence.",
+    "Passage presents information in semi-structured bibliography or list format without explicit syntactic verbs connecting the entity to the claimed work.",
+    "High-confidence model inference matches commonsense or passage facts (e.g., 'Cleveland is in Ohio', 'former military sniper'), but conflicts with gold benchmark label.",
+}
+
+ERROR_REVIEW_COLUMNS: List[str] = [
+    "fact_index",
+    "topic",
+    "claim",
+    "original_human_label",
+    "gold_label",
+    "predicted_label",
+    "error_type",
+    "max_entailment_probability",
+    "decision_threshold",
+    "selected_evidence_title",
+    "selected_evidence_clean",
+    "retrieved_passages_count",
+    "proposed_category",
+    "evidence_assessment",
+    "reviewed_category",
+    "manual_reason",
+    "review_status",
+]
+
+ERROR_EVIDENCE_COLUMNS: List[str] = [
+    "fact_index",
+    "topic",
+    "claim",
+    "passage_index",
+    "wikipedia_title",
+    "original_passage_text",
+    "clean_passage_text",
+    "selected_evidence_match",
+]
+
+
+# ==============================================================================
+# EVIDENCE CLEANING & PASSAGE MAPPING HELPERS
+# ==============================================================================
 
 def clean_evidence_text(text: str) -> str:
-    '''Removes sentence markers <s> and </s> and normalizes whitespace.'''
-    if not text: return ""
+    """
+    Replaces sentence boundary markers (<s>, </s>) with natural sentence spacing
+    and normalizes repeated whitespace for human readability without modifying
+    wording, dates, numbers, negation, or titles.
+    """
+    if not text:
+        return ""
     cleaned = re.sub(r"\s*</?s>\s*", " ", text)
-    return re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
-def map_selected_premise_to_passages(selected_premise: str, passages: list) -> dict:
-    '''Matches selected premise sentence back to exact retrieved passage title.'''
+
+def extract_faithful_case_study_excerpt(clean_premise: str, fact_index: int, max_len: int = 210) -> str:
+    """
+    Extracts a concise, verbatim focal excerpt from already-cleaned premise text
+    so critical context (such as qualifying clauses or bibliography items) remains
+    visible inside fixed-width visual cards without altering source wording.
+    """
+    premise = clean_premise.strip()
+    if fact_index == 2:
+        pos = premise.find("including a duet with")
+        if pos != -1:
+            end_pos = premise.find(")", pos)
+            if end_pos != -1:
+                return "..." + premise[pos:end_pos + 1]
+    elif fact_index == 212:
+        pos = premise.find("He is best known")
+        if pos != -1:
+            cut = premise.find("(2007)", pos)
+            if cut != -1:
+                return premise[pos:cut + 6] + " ..."
+    elif fact_index == 78:
+        pos = premise.find("Standalone novels")
+        if pos != -1:
+            end_pos = premise.find("Short stories", pos)
+            if end_pos != -1:
+                snippet = premise[pos:end_pos].strip()
+                if snippet.endswith("Bibliography.:"):
+                    snippet = snippet[:-len("Bibliography.:")].strip()
+                return f"Bibliography: {snippet}"
+            return f"Bibliography: {premise[pos:pos + 160].strip()}"
+    if len(premise) > max_len:
+        return premise[:max_len - 3] + "..."
+    return premise
+
+
+def map_selected_premise_to_passages(selected_premise: str, passages: List[dict]) -> Dict[str, Any]:
+    """
+    Deterministically matches the model's selected premise sentence back to the
+    exact retrieved passage(s) without assuming the first passage was used.
+
+    Match logic for `selected_evidence_match`:
+      - Single unambiguous exact sentence or raw substring match -> "Yes" on matched
+        passage, "No" on all other passages, title taken from matched passage.
+      - Multiple passages match identically -> "Uncertain" on matched passages, "No"
+        on non-matched; shares unique title if identical across matches, else
+        "Not reliably identified".
+      - Zero exact matches -> "Uncertain" across all retrieved passages (does not assume
+        retrieval absence) and title marked "Not reliably identified".
+    """
     target = (selected_premise or "").strip()
-    if not passages or not target:
-        return {"selected_evidence_title": "Not reliably identified", "passage_matches": ["Uncertain"] * len(passages)}
-    matched_indices = []
+    if not passages:
+        return {
+            "selected_evidence_title": "Not reliably identified",
+            "matched_passage_indices": [],
+            "passage_matches": [],
+        }
+    if not target:
+        return {
+            "selected_evidence_title": "Not reliably identified",
+            "matched_passage_indices": [],
+            "passage_matches": ["Uncertain"] * len(passages),
+        }
+
+    matched_indices: List[int] = []
     for p_idx, p in enumerate(passages):
         raw_text = p.get("text", "")
-        if target in raw_text:
+        sent_list = [s.strip() for s in split_into_sentences(raw_text)]
+        if target in sent_list or target in raw_text:
             matched_indices.append(p_idx)
+
     if len(matched_indices) == 1:
         hit = matched_indices[0]
         title = str(passages[hit].get("title", "")).strip() or "Not reliably identified"
-        return {"selected_evidence_title": title, "passage_matches": ["Yes" if i == hit else "No" for i in range(len(passages))]}
-    return {"selected_evidence_title": "Not reliably identified", "passage_matches": ["Uncertain"] * len(passages)}
+        matches = ["Yes" if i == hit else "No" for i in range(len(passages))]
+        return {
+            "selected_evidence_title": title,
+            "matched_passage_indices": matched_indices,
+            "passage_matches": matches,
+        }
+
+    if len(matched_indices) > 1:
+        titles = {str(passages[i].get("title", "")).strip() for i in matched_indices}
+        titles.discard("")
+        title = next(iter(titles)) if len(titles) == 1 else "Not reliably identified"
+        matches = ["Uncertain" if i in matched_indices else "No" for i in range(len(passages))]
+        return {
+            "selected_evidence_title": title,
+            "matched_passage_indices": matched_indices,
+            "passage_matches": matches,
+        }
+
+    # Zero exact string/sentence matches -> preserve explicit uncertainty
+    return {
+        "selected_evidence_title": "Not reliably identified",
+        "matched_passage_indices": [],
+        "passage_matches": ["Uncertain"] * len(passages),
+    }
+
+
+# ==============================================================================
+# SAFE BACKUP & EXISTING MANUAL REVIEW PRESERVATION
+# ==============================================================================
+
+def create_safe_backup(csv_path: str) -> str:
+    """Creates a timestamped backup copy of an existing review CSV before aborting or altering."""
+    parent = os.path.dirname(csv_path) or "."
+    base = os.path.splitext(os.path.basename(csv_path))[0]
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(parent, f"{base}.backup_{ts}.csv")
+    counter = 1
+    while os.path.exists(backup_path):
+        backup_path = os.path.join(parent, f"{base}.backup_{ts}_{counter}.csv")
+        counter += 1
+    shutil.copy2(csv_path, backup_path)
+    return backup_path
+
+
+def _row_has_manual_work(row: Dict[str, str]) -> bool:
+    """Returns True if a row contains any non-Pending review state or non-empty review entry."""
+    status = str(row.get("review_status", "Pending")).strip()
+    if status != "Pending":
+        return True
+    for col in ("evidence_assessment", "reviewed_category", "manual_reason"):
+        if str(row.get(col, "")).strip():
+            return True
+    return False
+
+
+def _validate_review_row_match(
+    row: Dict[str, str],
+    current_rec: Dict[str, Any],
+) -> Optional[str]:
+    """
+    Compares stable fact identifiers and Task 2 prediction attributes in an existing
+    CSV row against current Task 2 records. Returns an error message on mismatch.
+    """
+    if str(row.get("claim", "")).strip() != str(current_rec["claim"]).strip():
+        return f"claim mismatch (CSV='{row.get('claim')}' vs current='{current_rec['claim']}')"
+    for col, rec_key in [
+        ("topic", "topic"),
+        ("original_human_label", "original_human_label"),
+        ("gold_label", "gold_label"),
+        ("predicted_label", "predicted_label"),
+        ("error_type", "error_type"),
+    ]:
+        if col in row and str(row[col]).strip() != str(current_rec[rec_key]).strip():
+            return f"{col} mismatch (CSV='{row[col]}' vs current='{current_rec[rec_key]}')"
+    if "max_entailment_probability" in row and str(row["max_entailment_probability"]).strip():
+        try:
+            csv_prob = float(row["max_entailment_probability"])
+        except ValueError:
+            return f"invalid probability '{row['max_entailment_probability']}'"
+        if abs(csv_prob - float(current_rec["probability"])) > 1e-4:
+            return f"probability drift (CSV={csv_prob:.6f} vs current={current_rec['probability']:.6f})"
+    if "decision_threshold" in row and str(row["decision_threshold"]).strip():
+        try:
+            csv_th = float(row["decision_threshold"])
+        except ValueError:
+            return f"invalid threshold '{row['decision_threshold']}'"
+        if abs(csv_th - float(current_rec["threshold_used"])) > 1e-3:
+            return f"threshold drift (CSV={csv_th:.4f} vs current={current_rec['threshold_used']:.4f})"
+    return None
+
+
+def load_existing_reviews(
+    out_csv: str,
+    current_error_by_idx: Dict[int, Dict[str, Any]],
+) -> Dict[int, Dict[str, str]]:
+    """
+    Safely loads and validates manual reviews from an existing `error_review.csv`.
+
+    - Legacy CSVs containing solely old autogenerated rationale strings in `human_notes`
+      are recognized as unreviewed and migrated cleanly to Pending blank records.
+    - Legacy CSVs containing unknown/custom human notes trigger a safe backup and
+      fail cleanly so no notes are silently discarded.
+    - Current-schema CSVs containing manual work validate exact `fact_index`, `claim`,
+      labels, and probability consistency against Task 2 outputs; any stale or
+      mismatched prediction triggers a safe backup and raises ValueError.
+    """
+    if not os.path.exists(out_csv):
+        return {}
+
+    with open(out_csv, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+
+    if not fieldnames:
+        backup = create_safe_backup(out_csv)
+        raise ValueError(f"Empty or malformed CSV header in '{out_csv}'. Backup saved to '{backup}'.")
+
+    # Detect legacy 11-column autogenerated spreadsheet
+    if "human_notes" in fieldnames and "review_status" not in fieldnames:
+        custom_notes_indices = []
+        for r in rows:
+            note = str(r.get("human_notes", "")).strip()
+            if note and note not in LEGACY_AUTOGEN_RATIONALES:
+                custom_notes_indices.append(r.get("fact_index", "?"))
+        if custom_notes_indices:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(
+                f"Detected custom non-autogenerated human notes in legacy CSV for fact_index {custom_notes_indices}. "
+                f"Backup saved to '{backup}'. Migrate those notes manually before regenerating."
+            )
+        print("[Task 3 Review] Existing CSV holds only legacy autogenerated notes; migrating to clean Pending review records.")
+        return {}
+
+    required_cols = {"fact_index", "claim", "evidence_assessment", "reviewed_category", "manual_reason", "review_status"}
+    missing_cols = required_cols - set(fieldnames)
+    if missing_cols:
+        backup = create_safe_backup(out_csv)
+        raise ValueError(
+            f"Unrecognized CSV schema in '{out_csv}' (missing columns: {sorted(missing_cols)}). "
+            f"Backup saved to '{backup}'."
+        )
+
+    any_manual_work = any(_row_has_manual_work(r) for r in rows)
+    csv_indices: Set[int] = set()
+    preserved: Dict[int, Dict[str, str]] = {}
+
+    for row_num, r in enumerate(rows, start=2):
+        try:
+            idx = int(str(r.get("fact_index", "")).strip())
+        except ValueError:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(f"Invalid fact_index at CSV line {row_num}. Backup saved to '{backup}'.")
+
+        if idx in csv_indices:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(f"Duplicate fact_index {idx} in '{out_csv}'. Backup saved to '{backup}'.")
+        csv_indices.add(idx)
+
+        status = str(r.get("review_status", "")).strip() or "Pending"
+        ev_assess = str(r.get("evidence_assessment", "")).strip()
+        rev_cat = str(r.get("reviewed_category", "")).strip()
+        reason = str(r.get("manual_reason", "")).strip()
+
+        # Validate enum values on all rows so typos fail safely
+        if status not in ALLOWED_REVIEW_STATUSES:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(
+                f"Invalid review_status '{status}' at fact_index {idx}. "
+                f"Allowed: {sorted(ALLOWED_REVIEW_STATUSES)}. Backup saved to '{backup}'."
+            )
+        if ev_assess and ev_assess not in ALLOWED_EVIDENCE_ASSESSMENTS:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(
+                f"Invalid evidence_assessment '{ev_assess}' at fact_index {idx}. "
+                f"Allowed: {sorted(ALLOWED_EVIDENCE_ASSESSMENTS)}. Backup saved to '{backup}'."
+            )
+        if rev_cat and rev_cat not in ALLOWED_CATEGORY_SET:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(
+                f"Invalid reviewed_category '{rev_cat}' at fact_index {idx}. "
+                f"Allowed: {ALLOWED_CATEGORY_TITLES}. Backup saved to '{backup}'."
+            )
+        if reason in LEGACY_AUTOGEN_RATIONALES:
+            backup = create_safe_backup(out_csv)
+            raise ValueError(
+                f"Refusing legacy autogenerated rationale as manual_reason at fact_index {idx}. "
+                f"Backup saved to '{backup}'."
+            )
+
+        if status == "Reviewed":
+            missing_rev_fields = []
+            if rev_cat not in ALLOWED_CATEGORY_SET:
+                missing_rev_fields.append("reviewed_category")
+            if ev_assess not in ALLOWED_EVIDENCE_ASSESSMENTS:
+                missing_rev_fields.append("evidence_assessment")
+            if not reason:
+                missing_rev_fields.append("manual_reason")
+            if missing_rev_fields:
+                backup = create_safe_backup(out_csv)
+                raise ValueError(
+                    f"Inconsistent 'Reviewed' row at fact_index {idx}: missing/invalid {missing_rev_fields}. "
+                    f"Backup saved to '{backup}'."
+                )
+
+        if idx not in current_error_by_idx:
+            if any_manual_work:
+                backup = create_safe_backup(out_csv)
+                raise ValueError(
+                    f"Stale prediction detected: reviewed CSV references fact_index {idx}, which is no longer an "
+                    f"error in current Task 2 predictions. Backup saved to '{backup}'; refusing to reassign reviews."
+                )
+            continue
+
+        if any_manual_work or _row_has_manual_work(r):
+            mismatch = _validate_review_row_match(r, current_error_by_idx[idx])
+            if mismatch:
+                backup = create_safe_backup(out_csv)
+                raise ValueError(
+                    f"Prediction mismatch detected for fact_index {idx}: {mismatch}. "
+                    f"Backup saved to '{backup}'; refusing to overwrite existing human reviews."
+                )
+
+        preserved[idx] = {
+            "evidence_assessment": ev_assess,
+            "reviewed_category": rev_cat,
+            "manual_reason": reason,
+            "review_status": status,
+        }
+
+    # Detect error-set drift (e.g. new errors appearing or disappearing) once manual work has started
+    if any_manual_work and csv_indices != set(current_error_by_idx.keys()):
+        missing_in_curr = sorted(csv_indices - set(current_error_by_idx.keys()))
+        new_in_curr = sorted(set(current_error_by_idx.keys()) - csv_indices)
+        backup = create_safe_backup(out_csv)
+        raise ValueError(
+            f"Source prediction drift detected while manual reviews exist: "
+            f"removed_from_errors={missing_in_curr}, added_to_errors={new_in_curr}. "
+            f"Backup saved to '{backup}'; failing safely to protect manual work."
+        )
+
+    return preserved
+
+
+# ==============================================================================
+# SUMMARY STATISTICS & MUTUAL CONSISTENCY VALIDATION
+# ==============================================================================
+
+def compute_category_summary(
+    records: List[Dict[str, Any]],
+    category_field: str,
+) -> List[Dict[str, Any]]:
+    """
+    Computes counts, FP/FN breakdown, and percentages exclusively from `records`
+    using the specified category field (`proposed_category` or `reviewed_category`).
+    Denominator is always `len(records)`.
+    """
+    denom = len(records)
+    summary: List[Dict[str, Any]] = []
+    for cdef in CATEGORY_DEFINITIONS:
+        title = cdef["title"]
+        cat_recs = [r for r in records if r.get(category_field) == title]
+        cat_fps = [r for r in cat_recs if r["error_type"] == "FP"]
+        cat_fns = [r for r in cat_recs if r["error_type"] == "FN"]
+        count = len(cat_recs)
+        pct = (count / denom) * 100.0 if denom > 0 else 0.0
+        summary.append({
+            "category_id": cdef["category_id"],
+            "display_name": title,
+            "short_label": cdef["short_label"],
+            "definition": cdef["definition"],
+            "total_count": count,
+            "fp_count": len(cat_fps),
+            "fn_count": len(cat_fns),
+            "percentage": pct,
+            "error_indices": [r["fact_index"] for r in cat_recs],
+        })
+    return summary
+
+
+def validate_reviewed_consistency(
+    reviewed_records: List[Dict[str, Any]],
+    reviewed_summary: List[Dict[str, Any]],
+) -> None:
+    """
+    Validates that completed manual reviews and computed confirmed category
+    statistics are mutually consistent.
+    """
+    n_rev = len(reviewed_records)
+    if n_rev == 0:
+        if reviewed_summary:
+            raise ValueError("Consistency Error: non-empty reviewed_summary when zero records are reviewed.")
+        return
+
+    seen_indices: Set[int] = set()
+    for r in reviewed_records:
+        idx = r["fact_index"]
+        if idx in seen_indices:
+            raise ValueError(f"Consistency Error: duplicate reviewed record fact_index={idx}.")
+        seen_indices.add(idx)
+        if r["reviewed_category"] not in ALLOWED_CATEGORY_SET:
+            raise ValueError(f"Consistency Error: fact_index={idx} has invalid reviewed_category='{r['reviewed_category']}'.")
+        if r["evidence_assessment"] not in ALLOWED_EVIDENCE_ASSESSMENTS:
+            raise ValueError(f"Consistency Error: fact_index={idx} has invalid evidence_assessment='{r['evidence_assessment']}'.")
+        if not r["manual_reason"].strip():
+            raise ValueError(f"Consistency Error: fact_index={idx} marked Reviewed with empty manual_reason.")
+
+    sum_total = sum(c["total_count"] for c in reviewed_summary)
+    sum_fp = sum(c["fp_count"] for c in reviewed_summary)
+    sum_fn = sum(c["fn_count"] for c in reviewed_summary)
+    expected_fp = sum(1 for r in reviewed_records if r["error_type"] == "FP")
+    expected_fn = sum(1 for r in reviewed_records if r["error_type"] == "FN")
+
+    if sum_total != n_rev or (sum_fp + sum_fn) != n_rev:
+        raise ValueError(
+            f"Consistency Error: reviewed summary sum ({sum_total}, FP+FN={sum_fp + sum_fn}) "
+            f"does not match reviewed count ({n_rev})."
+        )
+    if sum_fp != expected_fp or sum_fn != expected_fn:
+        raise ValueError(
+            f"Consistency Error: reviewed FP/FN counts ({sum_fp}/{sum_fn}) mismatch records ({expected_fp}/{expected_fn})."
+        )
+    pct_sum = sum(c["percentage"] for c in reviewed_summary)
+    if abs(pct_sum - 100.0) > 1e-6:
+        raise ValueError(f"Consistency Error: reviewed percentages sum to {pct_sum:.6f} instead of 100.0.")
+
+
+# ==============================================================================
+# CASE STUDIES ASSEMBLY (SEPARATES FACTUAL OBSERVATION FROM MANUAL EXPLANATION)
+# ==============================================================================
+
+def _lookup_three_class_probs(nli_cache_dict: Dict[str, Any], raw_premise: str, claim: str) -> Optional[Tuple[float, float, float]]:
+    """Safely extracts cached (P_entail, P_neutral, P_contradict) for an exact premise-claim pair if available."""
+    if not nli_cache_dict:
+        return None
+    pair_key = f"{raw_premise.strip()}|||{claim.strip()}"
+    vec = nli_cache_dict.get(pair_key)
+    if not vec:
+        for k, v in nli_cache_dict.items():
+            if "|||" in k:
+                prem_part, claim_part = k.split("|||", 1)
+                if prem_part.strip() == raw_premise.strip() and claim_part.strip() == claim.strip():
+                    vec = v
+                    break
+    if isinstance(vec, list) and len(vec) == 3:
+        return float(vec[0]), float(vec[1]), float(vec[2])
+    return None
+
+
+def build_case_studies(
+    error_by_idx: Dict[int, Dict[str, Any]],
+    nli_cache_dict: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    Builds structured case studies for the three verified candidate errors
+    (Marianne McAndrew FP, Ji Sung FN, Alma Katsu FN), keeping unreviewed cases
+    explicitly marked provisional without fabricated explanations.
+    """
+    case_specs = [
+        {
+            "case_id": "Case 1 (FP)",
+            "fact_index": 2,
+            "proposed_improvement": (
+                "Possible improvement: investigate clause-level or negation-aware segmentation "
+                "prior to scoring parenthetical qualifiers."
+            ),
+        },
+        {
+            "case_id": "Case 2 (FN)",
+            "fact_index": 212,
+            "proposed_improvement": (
+                "Possible improvement: examine threshold sensitivity or paraphrase alignment "
+                "for subjective or evaluative phrasing."
+            ),
+        },
+        {
+            "case_id": "Case 3 (FN)",
+            "fact_index": 78,
+            "proposed_improvement": (
+                "Possible improvement: convert structured list/bibliography headings and entries "
+                "into declarative sentences before NLI scoring."
+            ),
+        },
+    ]
+
+    case_studies: List[Dict[str, Any]] = []
+    for spec in case_specs:
+        idx = spec["fact_index"]
+        if idx not in error_by_idx:
+            raise ValueError(f"Data Integrity Error: Case study fact index {idx} not found in verified error records.")
+        rec = error_by_idx[idx]
+
+        clean_prem = rec["selected_evidence_clean"]
+        focal_excerpt = extract_faithful_case_study_excerpt(clean_prem, idx)
+        prob = rec["probability"]
+        th = rec["threshold_used"]
+        probs_3 = _lookup_three_class_probs(nli_cache_dict, rec["selected_premise_sentence"], rec["claim"])
+
+        if idx == 2:
+            factual_obs = (
+                f"Orig Human={rec['original_human_label']}, Binary Gold={rec['gold_label']}, "
+                f"Predicted={rec['predicted_label']} ({rec['error_type']}). "
+                f"P(Entail)={prob:.4f} (>= {th:.2f}); selected excerpt contains "
+                f"'(but McAndrew did not do her own singing in the film)'."
+            )
+        elif idx == 212:
+            if probs_3 is not None:
+                p_ent, p_neu, p_con = probs_3
+                factual_obs = (
+                    f"Orig Human={rec['original_human_label']}, Binary Gold={rec['gold_label']}, "
+                    f"Predicted={rec['predicted_label']} ({rec['error_type']}). "
+                    f"P(Entail)={p_ent:.4f} (< {th:.2f}), P(Neutral)={p_neu:.4f}, P(Contra)={p_con:.4f}; "
+                    f"premise states 'best known for' while claim asks 'is popular'."
+                )
+            else:
+                factual_obs = (
+                    f"Orig Human={rec['original_human_label']}, Binary Gold={rec['gold_label']}, "
+                    f"Predicted={rec['predicted_label']} ({rec['error_type']}). "
+                    f"P(Entail)={prob:.4f} (< {th:.2f}); premise states 'best known for' while claim asks 'is popular'."
+                )
+        else:
+            factual_obs = (
+                f"Orig Human={rec['original_human_label']}, Binary Gold={rec['gold_label']}, "
+                f"Predicted={rec['predicted_label']} ({rec['error_type']}). "
+                f"P(Entail)={prob:.4f} (< {th:.2f}); selected premise includes bulleted Bibliography section text."
+            )
+
+        is_reviewed = rec["review_status"] == "Reviewed"
+        case_studies.append({
+            "case_id": spec["case_id"],
+            "fact_index": idx,
+            "topic": rec["topic"],
+            "claim": rec["claim"],
+            "original_human_label": rec["original_human_label"],
+            "gold_label": rec["gold_label"],
+            "predicted_label": rec["predicted_label"],
+            "error_type": rec["error_type"],
+            "probability": prob,
+            "threshold": th,
+            "selected_evidence_title": rec["selected_evidence_title"],
+            "selected_evidence_clean": clean_prem,
+            "evidence_snippet": focal_excerpt,
+            "review_status": rec["review_status"],
+            "is_reviewed": is_reviewed,
+            "proposed_category": rec["proposed_category"],
+            "reviewed_category": rec["reviewed_category"] if is_reviewed else "",
+            "evidence_assessment": rec["evidence_assessment"] if is_reviewed else "",
+            "manual_explanation": rec["manual_reason"] if is_reviewed else "",
+            "factual_observation": factual_obs,
+            "proposed_improvement": spec["proposed_improvement"],
+        })
+
+    return case_studies
+
+
+# ==============================================================================
+# VISUALIZATION GENERATORS (PROVISIONAL VS CONFIRMED HUMAN REVIEW)
+# ==============================================================================
+
+def generate_task3_error_distribution(
+    cat_summary: List[Dict[str, Any]],
+    review_state: str,
+    reviewed_count: int,
+    total_errors: int,
+    output_path: str = "outputs/task3/figures/task3_error_distribution.png",
+) -> str:
+    """
+    Renders high-DPI bar chart showing error distribution by FP and FN.
+    Strictly distinguishes provisional initial suggestions from human-reviewed distributions.
+    """
+    if not _HAS_MATPLOTLIB:
+        print("Warning: matplotlib not installed. Skipping figure generation.")
+        return ""
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(11.8, 6.0), dpi=200)
+
+    names = [c["short_label"] for c in cat_summary]
+    fp_counts = [c["fp_count"] for c in cat_summary]
+    fn_counts = [c["fn_count"] for c in cat_summary]
+    totals = [c["total_count"] for c in cat_summary]
+    pcts = [c["percentage"] for c in cat_summary]
+
+    x = np.arange(len(names))
+    width = 0.35
+
+    bars_fp = ax.bar(
+        x - width / 2,
+        fp_counts,
+        width,
+        label=f"False Positives (FP, N={sum(fp_counts)})",
+        color="#0F766E",
+        edgecolor="#1E293B",
+        linewidth=0.8,
+    )
+    bars_fn = ax.bar(
+        x + width / 2,
+        fn_counts,
+        width,
+        label=f"False Negatives (FN, N={sum(fn_counts)})",
+        color="#2563EB",
+        edgecolor="#1E293B",
+        linewidth=0.8,
+    )
+
+    max_val = max(max(fp_counts, default=0), max(fn_counts, default=0))
+    for i in range(len(names)):
+        max_h = max(fp_counts[i], fn_counts[i])
+        ax.annotate(
+            f"Total: {totals[i]} ({pcts[i]:.1f}%)",
+            xy=(x[i], max_h),
+            xytext=(0, 8),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8.8,
+            fontweight="bold",
+            color="#1E293B",
+        )
+
+    for b in bars_fp:
+        h = b.get_height()
+        if h > 0:
+            ax.annotate(
+                f"{int(h)}",
+                xy=(b.get_x() + b.get_width() / 2, h / 2),
+                ha="center",
+                va="center",
+                fontsize=8.8,
+                fontweight="bold",
+                color="white",
+            )
+
+    for b in bars_fn:
+        h = b.get_height()
+        if h > 0:
+            ax.annotate(
+                f"{int(h)}",
+                xy=(b.get_x() + b.get_width() / 2, h / 2),
+                ha="center",
+                va="center",
+                fontsize=8.8,
+                fontweight="bold",
+                color="white",
+            )
+
+    if review_state == "PROVISIONAL_UNREVIEWED":
+        title_str = f"Task 3 (PROVISIONAL — UNREVIEWED): Proposed Error Categories (N={total_errors} Errors)"
+        subtitle_str = f"Initial automated suggestions only — 0/{total_errors} manually reviewed (awaiting human examination)"
+        sub_color = "#B45309"
+    elif review_state == "PARTIAL_REVIEW":
+        title_str = f"Task 3 (Manually Reviewed Subset): Error Distribution (n={reviewed_count} of {total_errors} Errors)"
+        err_noun = "error" if reviewed_count == 1 else "errors"
+        subtitle_str = f"Computed exclusively from {reviewed_count} human-reviewed {err_noun} ({total_errors - reviewed_count} unreviewed excluded)"
+        sub_color = "#0369A1"
+    else:
+        title_str = f"Task 3 (Manually Verified): Error Category Distribution (N={reviewed_count} Errors)"
+        subtitle_str = f"Confirmed across all {reviewed_count}/{total_errors} manually reviewed classification errors"
+        sub_color = "#0F766E"
+
+    ax.set_ylabel("Error Frequency (Count)", fontsize=10.5, fontweight="bold", color="#1E293B")
+    ax.set_title(title_str, fontsize=11.8, fontweight="bold", color="#1E293B", pad=22)
+    ax.text(0.5, 1.02, subtitle_str, transform=ax.transAxes, ha="center", va="bottom",
+            fontsize=9.2, fontweight="bold", color=sub_color)
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, fontsize=8.8, fontweight="bold", color="#1E293B")
+    ax.set_ylim(0, max(max_val + 4.0, 3.5))
+    ax.grid(True, linestyle=":", alpha=0.5, axis="y")
+    ax.legend(loc="upper right", fontsize=9.0, framealpha=0.95)
+
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.08, dpi=200)
+    plt.close()
+    return output_path
+
+
+def generate_task3_error_summary_table(
+    cat_summary: List[Dict[str, Any]],
+    review_state: str,
+    reviewed_count: int,
+    total_errors: int,
+    total_eval: int,
+    output_path: str = "outputs/task3/figures/task3_error_summary_table.png",
+) -> str:
+    """
+    Renders high-DPI summary table separating provisional suggestions from
+    human-reviewed statistics without overclaiming causal mechanisms.
+    """
+    if not _HAS_MATPLOTLIB:
+        print("Warning: matplotlib not installed. Skipping figure generation.")
+        return ""
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig, ax = plt.subplots(figsize=(13.5, 6.2), dpi=200)
+    ax.axis("off")
+
+    is_provisional = review_state == "PROVISIONAL_UNREVIEWED"
+    if is_provisional:
+        headers = [
+            "Proposed Category\n(Provisional)",
+            "Category Scope & Definition\n(Initial Suggestion — Pending Manual Review)",
+            "FP",
+            "FN",
+            "Total",
+            "Share (%)",
+        ]
+        footer_title = f"Provisional Total\n(0/{total_errors} Reviewed)"
+        footer_desc = (
+            f"All {total_errors} classification errors on development set (N={total_eval} facts); "
+            f"provisional initial breakdown awaiting human review."
+        )
+        title_str = f"Task 3 (PROVISIONAL — UNREVIEWED): Proposed Error Taxonomy Summary (N={total_errors} Errors)"
+        denom_count = total_errors
+    elif review_state == "PARTIAL_REVIEW":
+        headers = [
+            "Reviewed Error Category",
+            "Category Scope & Definition\n(Confirmed Human-Reviewed Subset)",
+            "FP",
+            "FN",
+            "Reviewed",
+            "Share (%)",
+        ]
+        footer_title = f"Reviewed Subset Total\n({reviewed_count}/{total_errors})"
+        footer_desc = (
+            f"Computed solely from n={reviewed_count} manually reviewed errors "
+            f"(N={total_eval} evaluated; {total_errors - reviewed_count} unreviewed excluded)."
+        )
+        title_str = f"Task 3 (Manually Reviewed Subset): Error Summary Breakdown (n={reviewed_count} of {total_errors})"
+        denom_count = reviewed_count
+    else:
+        headers = [
+            "Reviewed Error Category",
+            "Category Scope & Definition\n(Manually Verified Classification)",
+            "FP",
+            "FN",
+            "Total",
+            "Share (%)",
+        ]
+        footer_title = f"Verified Total\n({reviewed_count}/{total_errors})"
+        footer_desc = f"All {reviewed_count} manually reviewed errors across N={total_eval} development facts."
+        title_str = f"Task 3 (Manually Verified): Error Summary Breakdown (N={reviewed_count} Errors)"
+        denom_count = reviewed_count
+
+    rows = []
+    for c in cat_summary:
+        rows.append([
+            textwrap.fill(c["display_name"], width=24),
+            textwrap.fill(c["definition"], width=56),
+            str(c["fp_count"]),
+            str(c["fn_count"]),
+            str(c["total_count"]),
+            f"{c['percentage']:.1f}%",
+        ])
+
+    rows.append([
+        footer_title,
+        textwrap.fill(footer_desc, width=56),
+        str(sum(c["fp_count"] for c in cat_summary)),
+        str(sum(c["fn_count"] for c in cat_summary)),
+        str(denom_count),
+        "100.0%",
+    ])
+
+    col_widths = [0.25, 0.47, 0.07, 0.07, 0.07, 0.07]
+    table = ax.table(cellText=rows, colLabels=headers, colWidths=col_widths, loc="center", cellLoc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(8.5)
+    table.scale(1.0, 2.7)
+
+    for (r_idx, c_idx), cell in table.get_celld().items():
+        if r_idx == 0:
+            cell.set_facecolor("#1E293B")
+            cell.set_text_props(color="white", fontweight="bold")
+        elif r_idx == len(rows):
+            cell.set_facecolor("#DBEAFE")
+            cell.set_text_props(color="#1E293B", fontweight="bold")
+        elif r_idx % 2 == 0:
+            cell.set_facecolor("#F8FAFC")
+        else:
+            cell.set_facecolor("#FFFFFF")
+        if c_idx in (0, 1):
+            cell.set_text_props(ha="left")
+
+    plt.title(title_str, fontsize=11.8, fontweight="bold", color="#1E293B", pad=16)
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.08, dpi=200)
+    plt.close()
+    return output_path
+
+
+def generate_task3_case_studies_table(
+    case_studies: List[Dict[str, Any]],
+    output_path: str = "outputs/task3/figures/task3_case_studies_table.png",
+) -> str:
+    """
+    Renders structured multi-panel diagnostic cards displaying all required case-study
+    fields. Keeps unreviewed cases clearly labeled as provisional examples.
+    """
+    if not _HAS_MATPLOTLIB:
+        print("Warning: matplotlib not installed. Skipping figure generation.")
+        return ""
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    fig, axes = plt.subplots(len(case_studies), 1, figsize=(13.2, 13.0), dpi=200)
+    if len(case_studies) == 1:
+        axes = [axes]
+
+    for i, cs in enumerate(case_studies):
+        ax = axes[i]
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+
+        card = Rectangle((0.01, 0.02), 0.98, 0.96, facecolor="#FFFFFF", edgecolor="#CBD5E1", linewidth=1.2)
+        ax.add_patch(card)
+
+        banner_color = "#1E293B"
+        banner = Rectangle((0.01, 0.78), 0.98, 0.20, facecolor=banner_color, edgecolor=banner_color)
+        ax.add_patch(banner)
+
+        is_rev = cs["is_reviewed"]
+        if is_rev:
+            cat_badge = f"REVIEWED: {cs['reviewed_category']} ({cs['evidence_assessment']})"
+            cat_color = "#34D399"
+            pill_text = f"REVIEWED ({cs['error_type']})"
+        else:
+            cat_badge = f"PROVISIONAL ({cs['review_status'].upper()}) | Suggested: {cs['proposed_category']}"
+            cat_color = "#FBBF24"
+            pill_text = f"PROVISIONAL ({cs['error_type']})"
+
+        ax.text(0.03, 0.91, f"{cs['case_id']} (Fact #{cs['fact_index']})  |  Topic: {cs['topic']}",
+                fontsize=10.2, fontweight="bold", color="white", va="center")
+        ax.text(0.97, 0.91, cat_badge, fontsize=8.8, fontweight="bold", color=cat_color, ha="right", va="center")
+        ax.text(0.03, 0.83, f'Claim: "{cs["claim"]}"', fontsize=9.2, color="#E2E8F0", va="center", style="italic")
+
+        # Left verification profile box
+        metrics_box = Rectangle((0.025, 0.04), 0.245, 0.71, facecolor="#F8FAFC", edgecolor="#CBD5E1", linewidth=0.8)
+        ax.add_patch(metrics_box)
+
+        err_color = "#DC2626" if cs["error_type"] == "FP" else "#2563EB"
+        ax.text(0.1475, 0.70, "VERIFICATION PROFILE", fontsize=7.8, fontweight="bold", color="#1E293B", ha="center")
+        ax.text(0.038, 0.60, f"Orig Human:  {cs['original_human_label']}", fontsize=8.2, fontweight="bold", color="#1E293B")
+        ax.text(0.038, 0.51, f"Binary Gold: {cs['gold_label']}", fontsize=8.2, fontweight="bold", color="#1E293B")
+        ax.text(0.038, 0.42, f"Predicted:   {cs['predicted_label']} ({cs['error_type']})", fontsize=8.2, fontweight="bold", color=err_color)
+        ax.text(0.038, 0.33, f"Max P(Ent):  {cs['probability']:.4f}", fontsize=8.2, fontweight="bold", color="#1E293B")
+        ax.text(0.038, 0.24, f"Threshold τ*: {cs['threshold']:.2f}", fontsize=8.2, color="#475569")
+        ax.text(0.1475, 0.11, pill_text, fontsize=7.8, fontweight="bold", color="white", ha="center", va="center",
+                bbox=dict(boxstyle="round,pad=0.32", facecolor=err_color, edgecolor=err_color))
+
+        # Right top evidence box
+        evidence_box = Rectangle((0.285, 0.47), 0.695, 0.28, facecolor="#FFFFFF", edgecolor="#CBD5E1", linewidth=0.8)
+        ax.add_patch(evidence_box)
+        ax.text(0.30, 0.715, f"[Actual Selected Evidence  |  Wikipedia Title: {cs['selected_evidence_title']}]",
+                fontsize=7.9, fontweight="bold", color="#2563EB")
+        wrapped_snip = textwrap.fill(f'"{cs["evidence_snippet"]}"', width=94)
+        ax.text(0.30, 0.575, wrapped_snip, fontsize=7.9, color="#1E293B", va="center", style="italic")
+
+        # Right bottom analysis / manual explanation box
+        analysis_box = Rectangle((0.285, 0.04), 0.695, 0.41, facecolor="#FFFFFF", edgecolor="#CBD5E1", linewidth=0.8)
+        ax.add_patch(analysis_box)
+
+        if is_rev:
+            expl_str = f"Manual Explanation ({cs['reviewed_category']}): {cs['manual_explanation']}"
+        else:
+            expl_str = f"Manual Explanation: [Pending manual review]  |  Record: {cs['factual_observation']}"
+        expl_wrapped = textwrap.fill(expl_str, width=94)
+        ax.text(0.30, 0.42, expl_wrapped, fontsize=7.7, color="#1E293B", va="top")
+
+        imp_wrapped = textwrap.fill(cs["proposed_improvement"], width=94)
+        ax.text(0.30, 0.17, imp_wrapped, fontsize=7.7, color="#0F766E", fontweight="bold", va="top")
+
+    all_rev = all(cs["is_reviewed"] for cs in case_studies)
+    any_rev = any(cs["is_reviewed"] for cs in case_studies)
+    if all_rev:
+        suptitle = "Task 3: Manually Reviewed Case Studies Across Task 2 Entailment Errors"
+    elif any_rev:
+        suptitle = "Task 3: Mixed Manual & Provisional Diagnostic Case Studies (Partially Reviewed)"
+    else:
+        suptitle = "Task 3 (PROVISIONAL — PENDING MANUAL REVIEW): Candidate Case Studies"
+
+    plt.suptitle(suptitle, fontsize=12.2, fontweight="bold", color="#1E293B", y=0.992)
+    plt.tight_layout(rect=[0, 0, 1, 0.978])
+    plt.savefig(output_path, bbox_inches="tight", pad_inches=0.06, dpi=200)
+    plt.close()
+    return output_path
+
+
+# ==============================================================================
+# SELF-VALIDATION CHECKLIST (SECTION 11)
+# ==============================================================================
+
+def validate_task3_artifacts(
+    out_csv: str,
+    evidence_csv: str,
+    out_json: str,
+    errors: List[Dict[str, Any]],
+    examples: List[Any],
+    opt_th: float,
+) -> None:
+    """
+    Re-reads generated Task 3 outputs and enforces structural, provenance,
+    and numerical integrity invariants against the source dataset and Task 2 results.
+    """
+    # 1. Validate error_review.csv schema & content
+    with open(out_csv, "r", newline="", encoding="utf-8") as f:
+        r_reader = csv.DictReader(f)
+        if list(r_reader.fieldnames or []) != ERROR_REVIEW_COLUMNS:
+            raise ValueError(f"Validation failed: error_review.csv columns mismatch {r_reader.fieldnames}")
+        review_rows = list(r_reader)
+
+    if len(review_rows) != len(errors):
+        raise ValueError(f"Validation failed: expected {len(errors)} review rows, found {len(review_rows)}")
+
+    expected_total_passages = 0
+    for row, err in zip(review_rows, errors):
+        idx = int(row["fact_index"])
+        if idx != err["fact_index"]:
+            raise ValueError(f"Validation failed: row ordering mismatch {idx} vs {err['fact_index']}")
+        ex = examples[idx]
+        expected_total_passages += len(ex.passages)
+        if row["claim"].strip() != ex.fact.strip():
+            raise ValueError(f"Validation failed: claim text mismatch at fact_index={idx}")
+        if row["original_human_label"] != ex.label:
+            raise ValueError(f"Validation failed: original human label mismatch at fact_index={idx}")
+        expected_gold = "NS" if ex.label == "IR" else ex.label
+        if row["gold_label"] != expected_gold:
+            raise ValueError(f"Validation failed: binary gold conversion mismatch at fact_index={idx}")
+        expected_err_type = "FP" if (expected_gold == "NS" and row["predicted_label"] == "S") else "FN"
+        if row["error_type"] != expected_err_type:
+            raise ValueError(f"Validation failed: error_type mismatch at fact_index={idx}")
+        if "<s>" in row["selected_evidence_clean"] or "</s>" in row["selected_evidence_clean"]:
+            raise ValueError(f"Validation failed: raw markers left in selected_evidence_clean at fact_index={idx}")
+        if int(row["retrieved_passages_count"]) != len(ex.passages):
+            raise ValueError(f"Validation failed: retrieved_passages_count mismatch at fact_index={idx}")
+        if row["review_status"] not in ALLOWED_REVIEW_STATUSES:
+            raise ValueError(f"Validation failed: invalid review_status at fact_index={idx}")
+        if row["review_status"] == "Pending":
+            if row["manual_reason"] in LEGACY_AUTOGEN_RATIONALES:
+                raise ValueError(f"Validation failed: autogenerated text left in manual_reason at fact_index={idx}")
+        if abs(float(row["decision_threshold"]) - opt_th) > 1e-3:
+            raise ValueError(f"Validation failed: threshold mismatch at fact_index={idx}")
+
+    # 2. Validate error_evidence.csv completeness
+    with open(evidence_csv, "r", newline="", encoding="utf-8") as f:
+        e_reader = csv.DictReader(f)
+        if list(e_reader.fieldnames or []) != ERROR_EVIDENCE_COLUMNS:
+            raise ValueError(f"Validation failed: error_evidence.csv columns mismatch {e_reader.fieldnames}")
+        ev_rows = list(e_reader)
+
+    if len(ev_rows) != expected_total_passages:
+        raise ValueError(
+            f"Validation failed: expected {expected_total_passages} evidence rows across all errors, "
+            f"found {len(ev_rows)}"
+        )
+
+    for ev_row in ev_rows:
+        idx = int(ev_row["fact_index"])
+        p_idx = int(ev_row["passage_index"])
+        src_passage = examples[idx].passages[p_idx]
+        if ev_row["original_passage_text"] != src_passage.get("text", ""):
+            raise ValueError(f"Validation failed: original_passage_text altered at fact_index={idx}, passage={p_idx}")
+        if "<s>" in ev_row["clean_passage_text"] or "</s>" in ev_row["clean_passage_text"]:
+            raise ValueError(f"Validation failed: raw markers left in clean_passage_text at fact_index={idx}, passage={p_idx}")
+        if ev_row["selected_evidence_match"] not in {"Yes", "No", "Uncertain"}:
+            raise ValueError(f"Validation failed: invalid selected_evidence_match '{ev_row['selected_evidence_match']}'")
+
+    # 3. Validate JSON payload separation
+    with open(out_json, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    prog = payload["review_progress"]
+    if prog["reviewed_count"] == 0 and payload["reviewed_categories_summary"]:
+        raise ValueError("Validation failed: reviewed_categories_summary must be empty when reviewed_count == 0")
+    if prog["reviewed_count"] > 0:
+        rev_sum = sum(c["total_count"] for c in payload["reviewed_categories_summary"])
+        if rev_sum != prog["reviewed_count"]:
+            raise ValueError("Validation failed: reviewed_categories_summary count mismatch")
+
+
+# ==============================================================================
+# MAIN WORKFLOW ORCHESTRATOR
+# ==============================================================================
+
+def run_task3(
+    passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",
+    dev_path: str = "data/dev_labeled_ChatGPT.jsonl",
+    figures_dir: str = "outputs/task3/figures",
+    outputs_dir: str = "outputs/task3",
+    t2_results_path: Optional[str] = None,
+    nli_cache_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Main entry point for Task 3 Error Analysis & Manual Review Workflow.
+    Returns summary metadata dictionary for testing and programmatic inspection.
+    """
+    start_time = time.time()
+    print("=" * 80)
+    print("Task 3 Error Analysis & Manual Review Workflow")
+    print("=" * 80)
+
+    # 1. Load Task 2 results & verify schema
+    t2_res_path = t2_results_path if t2_results_path is not None else os.path.join("outputs", "task2", "results.json")
+    if not os.path.exists(t2_res_path):
+        raise FileNotFoundError(
+            f"Missing Task 2 results file: '{t2_res_path}'. Run 'python experiments.py --task2' first."
+        )
+    with open(t2_res_path, "r", encoding="utf-8") as f:
+        t2_res = json.load(f)
+
+    predictions = t2_res.get("predictions", [])
+    if not predictions:
+        raise ValueError(f"Task 2 results in '{t2_res_path}' contains no predictions.")
+
+    winning_cfg = t2_res.get("winning_config", {})
+    if "optimal_threshold" not in winning_cfg:
+        raise ValueError(f"Task 2 results in '{t2_res_path}' missing 'optimal_threshold' in 'winning_config'.")
+    opt_th = float(winning_cfg["optimal_threshold"])
+
+    # 2. Load raw datasets & validate exact alignment
+    passages_dict, _ = load_passages_data(passages_path)
+    examples, _ = load_dev_examples(dev_path, passages_dict)
+
+    if len(predictions) != len(examples):
+        raise ValueError(
+            f"Prediction count mismatch: {len(predictions)} in '{t2_res_path}' vs {len(examples)} in '{dev_path}'."
+        )
+
+    for idx, (pred, ex) in enumerate(zip(predictions, examples)):
+        p_idx = pred.get("fact_index", pred.get("index"))
+        if p_idx != idx:
+            raise ValueError(f"Fact index mismatch at position {idx}: expected {idx}, got {p_idx}")
+        if pred.get("fact", "").strip() != ex.fact.strip():
+            raise ValueError(f"Fact text mismatch at index {idx}: '{pred.get('fact')}' vs '{ex.fact}'")
+        if ex.label not in {"S", "NS", "IR"}:
+            raise ValueError(f"Unexpected original human label '{ex.label}' at index {idx}")
+        expected_gold = "NS" if ex.label in ("NS", "IR") else ex.label
+        if pred.get("gold_label") != expected_gold:
+            raise ValueError(f"Binary gold label mismatch at index {idx}: '{pred.get('gold_label')}' vs '{expected_gold}'")
+        if pred.get("predicted_label") not in {"S", "NS"}:
+            raise ValueError(f"Invalid predicted_label '{pred.get('predicted_label')}' at index {idx}")
+        actual_correct = (pred["predicted_label"] == expected_gold)
+        if pred.get("is_correct") != actual_correct:
+            raise ValueError(f"Inconsistent is_correct flag at index {idx}")
+
+    # 3. Extract actual incorrect predictions dynamically
+    errors = [p for p in predictions if not p["is_correct"]]
+    total_eval = len(predictions)
+    total_errors = len(errors)
+    fps = [e for e in errors if e["predicted_label"] == "S"]
+    fns = [e for e in errors if e["predicted_label"] == "NS"]
+
+    print(f"\n[Task 3] Evaluated examples: {total_eval}")
+    print(f"  Verified Classification Errors: {total_errors} ({(total_errors / total_eval) * 100:.2f}%)")
+    print(f"  False Positives (FP): {len(fps)}")
+    print(f"  False Negatives (FN): {len(fns)}")
+
+    # Verify proposed initial category sets remain mutually disjoint
+    seen_prop_indices: Set[int] = set()
+    for cid, iset in PROPOSED_CATEGORY_INDEX_SETS.items():
+        overlap = seen_prop_indices & iset
+        if overlap:
+            raise ValueError(f"Data Integrity Error: Overlapping proposed category indices {sorted(overlap)} in '{cid}'.")
+        seen_prop_indices |= iset
+
+    # 4. Build initial error & evidence structures from ground-truth & prediction records
+    base_error_by_idx: Dict[int, Dict[str, Any]] = {}
+    evidence_export_rows: List[Dict[str, Any]] = []
+
+    for e in errors:
+        idx = int(e["fact_index"])
+        ex = examples[idx]
+        orig_label = ex.label
+        gold = e["gold_label"]
+        pred = e["predicted_label"]
+        err_type = "FP" if (gold == "NS" and pred == "S") else "FN"
+        prob = float(e["max_entailment_probability"])
+        raw_premise = str(e.get("selected_premise_sentence", ""))
+        clean_premise = clean_evidence_text(raw_premise)
+
+        mapping = map_selected_premise_to_passages(raw_premise, ex.passages)
+        matched_cats = [cid for cid, iset in PROPOSED_CATEGORY_INDEX_SETS.items() if idx in iset]
+        prop_cat = CATEGORY_ID_TO_TITLE[matched_cats[0]] if len(matched_cats) == 1 else ""
+
+        base_error_by_idx[idx] = {
+            "fact_index": idx,
+            "topic": e["topic"],
+            "claim": e["fact"],
+            "original_human_label": orig_label,
+            "gold_label": gold,
+            "predicted_label": pred,
+            "error_type": err_type,
+            "probability": prob,
+            "threshold_used": opt_th,
+            "selected_evidence_title": mapping["selected_evidence_title"],
+            "selected_premise_sentence": raw_premise,
+            "selected_evidence_clean": clean_premise,
+            "retrieved_passages_count": len(ex.passages),
+            "proposed_category": prop_cat,
+        }
+
+        passage_list_json: List[Dict[str, Any]] = []
+        for p_idx, (p, match_flag) in enumerate(zip(ex.passages, mapping["passage_matches"])):
+            raw_p_text = p.get("text", "")
+            clean_p_text = clean_evidence_text(raw_p_text)
+            p_title = str(p.get("title", ""))
+            ev_row = {
+                "fact_index": idx,
+                "topic": e["topic"],
+                "claim": e["fact"],
+                "passage_index": p_idx,
+                "wikipedia_title": p_title,
+                "original_passage_text": raw_p_text,
+                "clean_passage_text": clean_p_text,
+                "selected_evidence_match": match_flag,
+            }
+            evidence_export_rows.append(ev_row)
+            passage_list_json.append(ev_row)
+        base_error_by_idx[idx]["retrieved_passages"] = passage_list_json
+
+    # 5. Safely load and preserve existing genuine manual reviews (fail safely on conflicts/drift)
+    os.makedirs(outputs_dir, exist_ok=True)
+    out_csv = os.path.join(outputs_dir, "error_review.csv")
+    preserved_reviews = load_existing_reviews(out_csv, base_error_by_idx)
+
+    # Merge preserved manual reviews or clean Pending blank fields
+    error_records: List[Dict[str, Any]] = []
+    for e in errors:
+        idx = int(e["fact_index"])
+        rec = dict(base_error_by_idx[idx])
+        rev = preserved_reviews.get(idx)
+        if rev:
+            rec["evidence_assessment"] = rev["evidence_assessment"]
+            rec["reviewed_category"] = rev["reviewed_category"]
+            rec["manual_reason"] = rev["manual_reason"]
+            rec["review_status"] = rev["review_status"]
+        else:
+            rec["evidence_assessment"] = ""
+            rec["reviewed_category"] = ""
+            rec["manual_reason"] = ""
+            rec["review_status"] = "Pending"
+        error_records.append(rec)
+
+    error_by_idx = {r["fact_index"]: r for r in error_records}
+
+    # 6. Compute strictly separated Provisional vs Confirmed Manual-Review statistics
+    provisional_summary = compute_category_summary(error_records, category_field="proposed_category")
+    reviewed_records = [r for r in error_records if r["review_status"] == "Reviewed"]
+    needs_checking_records = [r for r in error_records if r["review_status"] == "Needs Further Checking"]
+    pending_records = [r for r in error_records if r["review_status"] == "Pending"]
+
+    reviewed_count = len(reviewed_records)
+    if reviewed_count == 0:
+        review_state = "PROVISIONAL_UNREVIEWED"
+        reviewed_summary: List[Dict[str, Any]] = []
+    elif reviewed_count < total_errors:
+        review_state = "PARTIAL_REVIEW"
+        reviewed_summary = compute_category_summary(reviewed_records, category_field="reviewed_category")
+    else:
+        review_state = "COMPLETE_REVIEW"
+        reviewed_summary = compute_category_summary(reviewed_records, category_field="reviewed_category")
+
+    validate_reviewed_consistency(reviewed_records, reviewed_summary)
+
+    reviewed_fp_count = sum(1 for r in reviewed_records if r["error_type"] == "FP")
+    reviewed_fn_count = sum(1 for r in reviewed_records if r["error_type"] == "FN")
+
+    print(f"  Manual Review Progress: {reviewed_count}/{total_errors} Reviewed | "
+          f"{len(needs_checking_records)} Needs Further Checking | {len(pending_records)} Pending "
+          f"[{review_state}]")
+
+    # 7. Load optional 3-class NLI cache strictly for compatible verified case-study inspection
+    nli_cache_dict: Dict[str, Any] = {}
+    cache_file = nli_cache_path if nli_cache_path is not None else os.path.join(
+        "outputs", "task2", "cache", "pair_probs_unpruned_full.json"
+    )
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                nli_cache_dict = json.load(f)
+        except Exception:
+            nli_cache_dict = {}
+
+    case_studies = build_case_studies(error_by_idx, nli_cache_dict)
+
+    # 8. Write outputs/task3/error_review.csv
+    try:
+        with open(out_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(ERROR_REVIEW_COLUMNS)
+            for r in error_records:
+                writer.writerow([
+                    r["fact_index"],
+                    r["topic"],
+                    r["claim"],
+                    r["original_human_label"],
+                    r["gold_label"],
+                    r["predicted_label"],
+                    r["error_type"],
+                    f"{r['probability']:.6f}",
+                    f"{r['threshold_used']:.4f}",
+                    r["selected_evidence_title"],
+                    r["selected_evidence_clean"],
+                    r["retrieved_passages_count"],
+                    r["proposed_category"],
+                    r["evidence_assessment"],
+                    r["reviewed_category"],
+                    r["manual_reason"],
+                    r["review_status"],
+                ])
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Cannot write '{out_csv}' because it is locked by another program (e.g., Microsoft Excel). "
+            f"Close the file cleanly and re-run 'python error_analysis.py'."
+        ) from exc
+    print(f"\n[Task 3] Exported manual review CSV to '{out_csv}' ({len(error_records)} rows).")
+
+    # 9. Write outputs/task3/error_evidence.csv (ALL retrieved passages per error)
+    evidence_csv = os.path.join(outputs_dir, "error_evidence.csv")
+    try:
+        with open(evidence_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(ERROR_EVIDENCE_COLUMNS)
+            for ev in evidence_export_rows:
+                writer.writerow([
+                    ev["fact_index"],
+                    ev["topic"],
+                    ev["claim"],
+                    ev["passage_index"],
+                    ev["wikipedia_title"],
+                    ev["original_passage_text"],
+                    ev["clean_passage_text"],
+                    ev["selected_evidence_match"],
+                ])
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Cannot write '{evidence_csv}' because it is locked by another program (e.g., Microsoft Excel). "
+            f"Close the file cleanly and re-run 'python error_analysis.py'."
+        ) from exc
+    print(f"[Task 3] Exported complete retrieved-evidence CSV to '{evidence_csv}' ({len(evidence_export_rows)} passages across {total_errors} errors).")
+
+    # 10. Save outputs/task3/error_records.json
+    payload = {
+        "task": "Task 3 Error Analysis",
+        "model": t2_res.get("model", "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"),
+        "total_eval_examples": total_eval,
+        "total_errors": total_errors,
+        "false_positives": len(fps),
+        "false_negatives": len(fns),
+        "accuracy": (total_eval - total_errors) / total_eval,
+        "optimal_threshold": opt_th,
+        "review_progress": {
+            "review_state": review_state,
+            "total_errors": total_errors,
+            "reviewed_count": reviewed_count,
+            "needs_further_checking_count": len(needs_checking_records),
+            "pending_count": len(pending_records),
+            "reviewed_false_positives": reviewed_fp_count,
+            "reviewed_false_negatives": reviewed_fn_count,
+            "complete": (reviewed_count == total_errors and total_errors > 0),
+        },
+        "provisional_categories_summary": provisional_summary,
+        "reviewed_categories_summary": reviewed_summary,
+        "case_studies": case_studies,
+        "error_records": error_records,
+    }
+    out_json = os.path.join(outputs_dir, "error_records.json")
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"[Task 3] Saved structured error analysis JSON to '{out_json}'.")
+
+    # 11. Generate Figures (using confirmed stats if any reviewed, else clearly marked provisional)
+    os.makedirs(figures_dir, exist_ok=True)
+    active_summary = reviewed_summary if reviewed_count > 0 else provisional_summary
+
+    fig1 = os.path.join(figures_dir, "task3_error_distribution.png")
+    fig2 = os.path.join(figures_dir, "task3_error_summary_table.png")
+    fig3 = os.path.join(figures_dir, "task3_case_studies_table.png")
+
+    generate_task3_error_distribution(
+        active_summary, review_state, reviewed_count, total_errors, output_path=fig1
+    )
+    generate_task3_error_summary_table(
+        active_summary, review_state, reviewed_count, total_errors, total_eval, output_path=fig2
+    )
+    generate_task3_case_studies_table(case_studies, output_path=fig3)
+
+    print(f"[Task 3] Generated figures in '{figures_dir}/':")
+    print(f"  - {fig1}")
+    print(f"  - {fig2}")
+    print(f"  - {fig3}")
+
+    # 12. Validate all generated outputs programmatically
+    validate_task3_artifacts(out_csv, evidence_csv, out_json, errors, examples, opt_th)
+    print("[Task 3] Self-validation checks passed (100% alignment with source data and Task 2 predictions).")
+
+    elapsed = time.time() - start_time
+    print(f"\n[Task 3] Completed in {elapsed:.2f}s.")
+    print("=" * 80)
+
+    return {
+        "total_eval": total_eval,
+        "total_errors": total_errors,
+        "false_positives": len(fps),
+        "false_negatives": len(fns),
+        "evidence_rows": len(evidence_export_rows),
+        "review_state": review_state,
+        "reviewed_count": reviewed_count,
+        "out_csv": out_csv,
+        "evidence_csv": evidence_csv,
+        "out_json": out_json,
+    }
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Fact-Trace AI Task 3 Error Analysis & Manual Review Utility")
+    parser.add_argument("--passages-path", default="data/passages_bm25_ChatGPT_humfacts.jsonl")
+    parser.add_argument("--dev-path", default="data/dev_labeled_ChatGPT.jsonl")
+    parser.add_argument("--t2-results", default=None)
+    parser.add_argument("--outputs-dir", default="outputs/task3")
+    parser.add_argument("--figures-dir", default="outputs/task3/figures")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    run_task3(
+        passages_path=args.passages_path,
+        dev_path=args.dev_path,
+        figures_dir=args.figures_dir,
+        outputs_dir=args.outputs_dir,
+        t2_results_path=args.t2_results,
+    )
