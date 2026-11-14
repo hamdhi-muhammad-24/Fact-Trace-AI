@@ -1,139 +1,136 @@
-# FactTrace AI — Fact-Checking Coursework Implementation
+﻿# FactTrace AI
 
-**CM3604 Deep Learning Coursework Repository**
+FactTrace AI verifies factual claims against retrieved Wikipedia passages using the FActScore ChatGPT benchmark dataset. Developed for CM3604 Deep Learning coursework, it includes a word overlap classifier, a textual entailment classifier, and supporting experiments and error analysis.
 
-FactTrace AI implements automated factual claim verification over retrieved Wikipedia evidence passages using the FActScore ChatGPT benchmark dataset.
+Predictions use two labels: `S` (supported) and `NS` (not supported).
 
-The project addresses all three required coursework components:
-- **Part 1: Word Overlap Fact-Checking** — 40 marks (target: ≥ 75.0% accuracy; achieved: 85.07%)
-- **Part 2: Textual Entailment Fact-Checking** — 40 marks (target: ≥ 83.0% accuracy; achieved: 84.16%)
-- **Part 3: Manual & Empirical Error Analysis** — 20 marks (quantitative failure taxonomy & case studies)
-
----
-
-## Repository Architecture
+## Project structure
 
 ```text
 Fact-Trace-AI/
-├── factcheck.py             # Required submission module (self-contained, no matplotlib)
-├── factchecking_main.py     # Official test driver (unchanged lecturer starter file)
-├── requirements.txt         # Coursework dependencies specification (unchanged)
-├── eda.py                   # Phase 1: Exploratory data analysis & data-quality audit
-├── experiments.py           # Phases 2, 3, 5: Baselines, Task 1 grid, Task 2 pruning sweeps
-├── error_analysis.py        # Task 3: Qualitative & quantitative failure taxonomy
-├── model_comparison.py      # Phase 8: Cross-paradigm synthesis & evidence comparison
-│
-├── data/
-│   ├── FACTSCORE-LICENSE.txt
-│   ├── dev_labeled_ChatGPT.jsonl            # 221 labeled atomic claims across 31 biographies
-│   └── passages_bm25_ChatGPT_humfacts.jsonl # BM25 retrieved Wikipedia passages corpus
-│
-├── outputs/
-│   ├── eda/                 # summary.json & figures/ (8 charts)
-│   ├── baselines/           # results.json & figures/ (2 charts)
-│   ├── task1/               # experiments.json, results.json, comparisons.csv, predictions.csv, figures/ (7 charts)
-│   ├── task2/               # experiments.json, results.json, comparisons.csv, predictions.csv, cache/, figures/ (7 charts)
-│   ├── task3/               # error_records.json, error_review.csv, figures/ (3 charts)
-│   └── comparison/          # overall_results.json, comparison.csv, figures/ (4 charts)
-│
-├── docs/
-│   ├── CW.pdf               # Official coursework brief & Grade A assessment grid
-│   └── IMPLEMENTATION_PLAN.md
-│
-├── README.md
-└── .gitignore
+|-- factcheck.py           # Classifiers, evidence processing, and shared helpers
+|-- factchecking_main.py   # Evaluation driver
+|-- eda.py                 # Dataset exploration and data-quality checks
+|-- experiments.py         # Baselines, configuration sweeps, and cross-validation
+|-- error_analysis.py      # Error evidence, manual review, and analysis figures
+|-- model_comparison.py    # Comparison tables and figures
+|-- requirements.txt
+|-- data/                  # Labeled claims, retrieved passages, and dataset license
+|-- docs/CW.pdf            # Coursework brief
+|-- outputs/
+|   |-- eda/
+|   |-- baselines/
+|   |-- task1/
+|   |-- task2/             # Includes NLI inference caches
+|   |-- task3/
+|   `-- comparison/
+`-- README.md
 ```
 
----
+Use the root `factcheck.py` for the current implementation.
 
-## Required Environment
+## Setup
 
-Use **Python 3.10**:
+Use Python 3.10 and run commands from the repository root. Create and activate a virtual environment, then install the dependencies:
 
-```bash
-pip install -r requirements.txt
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-*(Matplotlib is only used by the modular experiment and visualization scripts, not by the submitted `factcheck.py`.)*
+To generate analysis figures, also install Matplotlib, which is not included in `requirements.txt`:
 
----
+```powershell
+python -m pip install matplotlib
+```
 
-## Official Coursework Commands
+The default word overlap classifier uses Porter stemming. The experimental lemmatization variant also requires the NLTK WordNet corpus:
 
-The official evaluation driver executes without modification:
+```powershell
+python -c "import nltk; nltk.download('wordnet')"
+```
 
-### Task 1: Word Overlap Fact-Checker
-```bash
+The entailment model is `MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli`. Its first use requires internet access to download the model and tokenizer. CPU inference is supported; `--cuda` requires a compatible GPU and CUDA-enabled PyTorch installation.
+
+## Evaluate the classifiers
+
+```powershell
+# Word overlap classifier
 python factchecking_main.py --mode word_overlap
-```
-- **Configuration**: P4 Porter-Stemmed Number-Aware Word Recall (θ* = 0.64, Max aggregation, Disjoint number penalty λ = 0.0)
-- **Coursework Target**: ≥ 75.0% accuracy
-- **Result**: **188 / 221 = 85.07%** (Balanced Accuracy: 85.07%, Macro-F1: 0.8507)
 
-### Task 2: DeBERTa-v3 Textual Entailment Fact-Checker
-```bash
+# Textual entailment classifier
 python factchecking_main.py --mode entailment
-```
-*(Optional GPU acceleration: `python factchecking_main.py --mode entailment --cuda`)*
-- **Configuration**: Sentence-level evidence units, lexical pruning (γ = 0.05, top_k = all, conservative fallback), probability thresholding (τ* = 0.33)
-- **Coursework Target**: ≥ 83.0% accuracy
-- **Result**: **186 / 221 = 84.16%** (Balanced Accuracy: 84.28%, Macro-F1: 0.8408)
 
-### Baseline Comparisons
-```bash
+# Optional GPU inference
+python factchecking_main.py --mode entailment --cuda
+
+# Baselines
 python factchecking_main.py --mode always_entail
 python factchecking_main.py --mode random
 ```
 
----
+The default input files are:
 
-## Experimental Suite & Evaluation Methodology
+- `data/dev_labeled_ChatGPT.jsonl`
+- `data/passages_bm25_ChatGPT_humfacts.jsonl`
 
-The experimental suite maintains clear distinctions across evaluation modalities:
-- **Development Set Evaluation**: Full evaluation over the labeled development set (221 facts) matching `factchecking_main.py`.
-- **Grouped Cross-Validation**: Topic-grouped 5-fold CV to evaluate out-of-fold generalization across unseen biographical topics.
-- **Cached NLI Experimental Evaluation**: Fast, reproducible ablation and configuration sweeps leveraging cryptographically validated inference caches.
-- **Live DeBERTa Inference**: Direct neural forward-pass execution in `factchecking_main.py` using HuggingFace Transformers and PyTorch.
-- **Recorded Historical CPU Benchmarks**: Documented wall-clock runtimes and throughput measured on standard CPU hardware.
+To evaluate other files, use the driver's `--labels_path` and `--passages_path` options.
 
-To reproduce all exploratory analysis, experimental grids, cross-validation, and error analyses:
+## Recorded development results
 
-```bash
-# 1. Exploratory Data Analysis & Quality Audit (generates outputs/eda/)
+The saved results cover 221 labeled claims. These are development-set measurements used during configuration selection; cross-validation results are recorded separately in the output files.
+
+| Classifier | Correct | Accuracy | Macro-F1 |
+|---|---:|---:|---:|
+| Word overlap | 188 / 221 | 85.07% | 0.8507 |
+| Textual entailment | 186 / 221 | 84.16% | 0.8408 |
+
+The default word overlap configuration uses P4 preprocessing, Porter stemming, numerical consistency checks, maximum passage recall, and a threshold of `0.64`.
+
+The default entailment configuration uses sentence-level evidence, lexical pruning at `0.05`, all retained candidates, a conservative fallback, and an entailment probability threshold of `0.33`.
+
+See [Task 1 results](outputs/task1/results.json) and [Task 2 results](outputs/task2/results.json) for metrics, configurations, and cross-validation records. Runtime measurements depend on hardware and whether inference caches are reused.
+
+## Run the analysis scripts
+
+```powershell
+# Dataset exploration
 python eda.py
 
-# 2. Baseline Benchmarks & Monte Carlo simulations (outputs/baselines/)
+# Baseline experiments
 python experiments.py --baselines
 
-# 3. Task 1 120-Configuration Grid Search & Nested Grouped 5-Fold CV (outputs/task1/)
+# Word overlap experiments and grouped cross-validation
 python experiments.py --task1
 
-# 4. Task 2 DeBERTa-v3 Formulation & Pruning Sweep (outputs/task2/)
+# Entailment experiments; generate missing inference caches as needed
 python experiments.py --task2
 
-# 5. Verify Cryptographic NLI Cache Integrity (15 negative corruption tests)
-python experiments.py --test-cache
+# Force fresh entailment inference
+python experiments.py --task2 --rebuild-cache
 
-# 6. Run All Benchmarks at once
+# Run baselines, Task 1, and Task 2 together
 python experiments.py --all
 
-# 7. Task 3 Failure Mode Taxonomy & Error Analysis (outputs/task3/)
+# Validate cache integrity with corruption tests
+python experiments.py --test-cache
+
+# Build error-review artifacts from Task 2 results
 python error_analysis.py
 
-# 8. Overall Cross-Paradigm Comparison & Master Audit (outputs/comparison/)
+# Compare saved system results
 python model_comparison.py
 ```
 
-### Note on NLTK WordNet
-The winning Task 1 P4 classifier in `factcheck.py` uses algorithmic `PorterStemmer` and requires no external downloads. If running the full Task 1 experimental suite with the P3 lemmatization ablation via `experiments.py --task1`, install the WordNet corpus once:
-```bash
-python -c "import nltk; nltk.download('wordnet')"
-```
+Run the baseline and task experiments before the downstream analysis scripts when regenerating results. `--all` runs the three experiment groups; run EDA, error analysis, and model comparison separately. Commands write results and figures under `outputs/`.
 
----
+## Error review status
 
-## Coursework Submission Details
+The saved Task 2 predictions contain 35 errors: 8 false positives and 27 false negatives. The current Task 3 artifacts mark all 35 as pending manual review. Suggested error categories are provisional and should not be reported as confirmed human findings.
 
-As per coursework guidelines, submission consists of:
-1. **`factcheck.py`**: The clean root implementation file implementing all required classes (`WordRecallThresholdFactChecker`, `EntailmentFactChecker`, etc.).
-2. **PDF Written Report**: Coursework documentation including error analysis, ablation studies, and experimental findings.
+Use `outputs/task3/error_review.csv` to record manual decisions and `outputs/task3/error_evidence.csv` to inspect retrieved evidence, then rerun `python error_analysis.py` to refresh summaries. The script preserves existing manual reviews and checks their alignment with the predictions.
+
+## Dataset license
+
+See [data/FACTSCORE-LICENSE.txt](data/FACTSCORE-LICENSE.txt) for the supplied dataset license.
