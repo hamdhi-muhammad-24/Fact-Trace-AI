@@ -1,16 +1,4 @@
 # experiments.py
-"""
-CM3604 Deep Learning Coursework — Experimental Evaluation Suite
-Consolidated Benchmark Orchestration, Parameter Optimizations, Cross-Validation & Visualizations
-
-Modules Covered:
-  - Phase 2: Majority & Stochastic Baselines (Always Supported & Monte Carlo Random Guess)
-  - Phase 3: Task 1 Heuristic Word Overlap Optimization (120-config grid, P0-P4 ablation, nested grouped CV)
-  - Phase 5: Task 2 DeBERTa-v3 Textual Entailment Optimization (evidence formulations, pruning sweeps, threshold tuning)
-
-All experiments run independently of the official submission file `factcheck.py`.
-Classifiers and data loaders are imported directly from `factcheck.py`.
-"""
 
 import os
 import sys
@@ -64,9 +52,9 @@ from factcheck import (
 )
 
 
-# ==============================================================================
+#
 # PHASE 2: BASELINE EXPERIMENTS & METRICS EVALUATION
-# ==============================================================================
+#
 
 def evaluate_fact_checker_standalone(examples: List[FactExample], fact_checker: FactChecker) -> Tuple[Dict[str, Any], List[str]]:
     """
@@ -424,9 +412,9 @@ def run_baselines(passages_path: str = "data/passages_bm25_ChatGPT_humfacts.json
     print("[Phase 2 Baselines] Execution completed successfully.")
 
 
-# ==============================================================================
+#
 # PHASE 3: TASK 1 EXPERIMENTS & THRESHOLD OPTIMIZATION
-# ==============================================================================
+#
 
 def evaluate_config_thresholds_fast(sub_scores: List[float], sub_gold: List[str], metric_name: str) -> Tuple[float, Dict[str, Any], Tuple[float, float], List[Dict[str, Any]], int]:
     """
@@ -1402,9 +1390,9 @@ def run_task1(passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",
     print(f"[Phase 3 Task 1] Execution completed successfully in {elapsed_time:.2f}s.")
 
 
-# ==============================================================================
+#
 # PHASE 5: TASK 2 EXPERIMENTS & PRUNING ABLATIONS
-# ==============================================================================
+#
 
 def compute_nli_pairs_fingerprint(pairs: List[Tuple[str, str]]) -> str:
     h = hashlib.sha256()
@@ -3217,9 +3205,9 @@ def run_task2(passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",
     print("=" * 80)
 
 
-# ==============================================================================
+#
 # CLI EXECUTION DISPATCHER
-# ==============================================================================
+#
 
 if __name__ == "__main__":
     import argparse

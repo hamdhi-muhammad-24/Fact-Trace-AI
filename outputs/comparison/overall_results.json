@@ -38,8 +38,8 @@
           53
         ]
       ],
-      "runtime": "0.0063s",
-      "throughput": "35039 facts/s (0.030 ms/f)",
+      "runtime": "0.0053s",
+      "throughput": "41512 facts/s (0.020 ms/f)",
       "color": "#64748B",
       "primary_strength": "Zero parameter overhead; provides uninformative stochastic lower bound.",
       "primary_vulnerability": "Completely blind to semantic evidence and fact content."
@@ -73,7 +73,7 @@
         ]
       ],
       "runtime": "0.0001s",
-      "throughput": "3082286 facts/s (0.000 ms/f)",
+      "throughput": "3002717 facts/s (0.000 ms/f)",
       "color": "#94A3B8",
       "primary_strength": "Maximizes Supported recall (100.0%); trivial zero-rule baseline without evaluating passages.",
       "primary_vulnerability": "Total failure on Not Supported class (0.0% precision, recall, F1); blind to evidence."
@@ -106,8 +106,8 @@
           93
         ]
       ],
-      "runtime": "1.29s",
-      "throughput": "171.8 facts/s (5.8 ms/f)",
+      "runtime": "1.53s",
+      "throughput": "144.8 facts/s (6.9 ms/f)",
       "color": "#2563EB",
       "primary_strength": "Fast CPU inference; strong surface lexical recall and numerical entity alignment.",
       "primary_vulnerability": "Lexical overlap deceived by topic words (16 FPs); lacks semantic negation awareness."

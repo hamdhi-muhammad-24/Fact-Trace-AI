@@ -1,17 +1,4 @@
 # error_analysis.py
-"""
-CM3604 Deep Learning Coursework — Task 3 Error Analysis & Manual Review Workflow
-Identifies incorrect Task 2 DeBERTa-v3 predictions, recovers original human
-annotations (S / NS / IR) alongside binary evaluation labels, maps selected
-evidence premises back to retrieved passages, cleans sentence markers for display
-while retaining untouched source text, preserves manual human reviews safely,
-and separates provisional category suggestions from confirmed human-reviewed
-statistics and visualizations.
-
-This module is a standalone diagnostic and manual-review utility separated
-from the required factcheck.py submission module and never alters model weights,
-preprocessing, predictions, thresholds, or source datasets.
-"""
 
 import os
 import re
@@ -39,9 +26,9 @@ except ImportError:
 from factcheck import load_passages_data, load_dev_examples, split_into_sentences
 
 
-# ==============================================================================
+#
 # AUTHORITATIVE TASK 3 TAXONOMY & SCHEMA CONSTANTS
-# ==============================================================================
+#
 
 CATEGORY_DEFINITIONS: List[Dict[str, str]] = [
     {
@@ -150,9 +137,9 @@ ERROR_EVIDENCE_COLUMNS: List[str] = [
 ]
 
 
-# ==============================================================================
+#
 # EVIDENCE CLEANING & PASSAGE MAPPING HELPERS
-# ==============================================================================
+#
 
 def clean_evidence_text(text: str) -> str:
     """
@@ -265,9 +252,9 @@ def map_selected_premise_to_passages(selected_premise: str, passages: List[dict]
     }
 
 
-# ==============================================================================
+#
 # SAFE BACKUP & EXISTING MANUAL REVIEW PRESERVATION
-# ==============================================================================
+#
 
 def create_safe_backup(csv_path: str) -> str:
     """Creates a timestamped backup copy of an existing review CSV before aborting or altering."""
@@ -483,9 +470,9 @@ def load_existing_reviews(
     return preserved
 
 
-# ==============================================================================
+#
 # SUMMARY STATISTICS & MUTUAL CONSISTENCY VALIDATION
-# ==============================================================================
+#
 
 def compute_category_summary(
     records: List[Dict[str, Any]],
@@ -566,9 +553,9 @@ def validate_reviewed_consistency(
         raise ValueError(f"Consistency Error: reviewed percentages sum to {pct_sum:.6f} instead of 100.0.")
 
 
-# ==============================================================================
+#
 # CASE STUDIES ASSEMBLY (SEPARATES FACTUAL OBSERVATION FROM MANUAL EXPLANATION)
-# ==============================================================================
+#
 
 def _lookup_three_class_probs(nli_cache_dict: Dict[str, Any], raw_premise: str, claim: str) -> Optional[Tuple[float, float, float]]:
     """Safely extracts cached (P_entail, P_neutral, P_contradict) for an exact premise-claim pair if available."""
@@ -694,9 +681,9 @@ def build_case_studies(
     return case_studies
 
 
-# ==============================================================================
+#
 # VISUALIZATION GENERATORS (PROVISIONAL VS CONFIRMED HUMAN REVIEW)
-# ==============================================================================
+#
 
 def generate_task3_error_distribution(
     cat_summary: List[Dict[str, Any]],
@@ -1026,9 +1013,9 @@ def generate_task3_case_studies_table(
     return output_path
 
 
-# ==============================================================================
+#
 # SELF-VALIDATION CHECKLIST (SECTION 11)
-# ==============================================================================
+#
 
 def validate_task3_artifacts(
     out_csv: str,
@@ -1117,9 +1104,9 @@ def validate_task3_artifacts(
             raise ValueError("Validation failed: reviewed_categories_summary count mismatch")
 
 
-# ==============================================================================
+#
 # MAIN WORKFLOW ORCHESTRATOR
-# ==============================================================================
+#
 
 def run_task3(
     passages_path: str = "data/passages_bm25_ChatGPT_humfacts.jsonl",

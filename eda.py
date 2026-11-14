@@ -1,15 +1,4 @@
 # eda.py
-"""
-CM3604 Deep Learning Coursework — Exploratory Data Analysis & Quality Audit
-Phase 1: Dataset Loading, Structural Metrics, Anomaly Auditing, and Visualizations
-
-This module executes comprehensive EDA and data-quality analysis over the FActScore
-ChatGPT development dataset and BM25 retrieval corpus.
-
-Outputs generated:
-  - outputs/eda/summary.json (structured audit metrics & anomaly records)
-  - outputs/eda/figures/ (8 publication-grade high-DPI analytical figures)
-"""
 
 import os
 import sys

@@ -1,27 +1,4 @@
-"""
-CM3604 Deep Learning Coursework — Phase 8: Model Comparison Module
-Course: CM3604 Deep Learning
 
-This module executes the comprehensive model comparison and evidence integrity audit
-across all four fact-checking paradigms developed in the coursework:
-  1. Random Guess Baseline (stochastic lower bound, seed=42)
-  2. Always Supported Baseline (majority class baseline)
-  3. Task 1: Word Overlap Fact-Checking (P4 Porter-Stemmed Number-Aware Word Recall)
-  4. Task 2: Textual Entailment Fact-Checking (DeBERTa-v3-base-mnli-fever-anli,
-             Sentence Formulation, Lexical Pruning gamma >= 0.05, Optimal Threshold tau* = 0.33)
-
-Artifacts Generated:
-  - outputs/comparison/overall_results.json
-  - outputs/comparison/comparison.csv
-  - outputs/comparison/figures/overall_model_comparison_table.png
-  - outputs/comparison/figures/overall_accuracy_progression.png
-  - outputs/comparison/figures/overall_model_comparison_metrics.png
-  - outputs/comparison/figures/overall_model_comparison_profile.png
-
-Strict Contract:
-  - Silent import rule: Zero stdout/stderr output when imported (`python -c "import model_comparison"`).
-  - Dynamic provenance: All figures and JSON metrics are populated strictly from genuine executed results.
-"""
 
 import os
 import json
@@ -401,9 +378,9 @@ def generate_overall_model_comparison_table(comparison_records: List[Dict[str, A
         "task2_deberta_v3": "Task 2: DeBERTa-v3 Entailment"
     }
 
-    # =========================================================================
+    #
     # 1. Master Stacked Two-Panel Figure (16.0 x 11.2 inches)
-    # =========================================================================
+    #
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16.0, 11.2), dpi=200, gridspec_kw={"hspace": 0.42})
     ax1.axis("off")
     ax2.axis("off")
@@ -524,9 +501,9 @@ def generate_overall_model_comparison_table(comparison_records: List[Dict[str, A
     plt.savefig(output_path, bbox_inches="tight", pad_inches=0.08, dpi=200)
     plt.close()
 
-    # =========================================================================
+    #
     # 2. Standalone Panel A Figure: overall_model_comparison_metrics.png
-    # =========================================================================
+    #
     fig_a, ax_a = plt.subplots(figsize=(14.5, 4.8), dpi=200)
     ax_a.axis("off")
     t_a = ax_a.table(cellText=rows_a, colLabels=headers_a, colWidths=col_widths_a, loc="center", cellLoc="center")
@@ -559,9 +536,9 @@ def generate_overall_model_comparison_table(comparison_records: List[Dict[str, A
     plt.savefig(path_a, bbox_inches="tight", pad_inches=0.08, dpi=200)
     plt.close()
 
-    # =========================================================================
+    #
     # 3. Standalone Panel B Figure: overall_model_comparison_profile.png
-    # =========================================================================
+    #
     fig_b, ax_b = plt.subplots(figsize=(16.0, 5.2), dpi=200)
     ax_b.axis("off")
     t_b = ax_b.table(cellText=rows_b, colLabels=headers_b, colWidths=col_widths_b, loc="center", cellLoc="center")

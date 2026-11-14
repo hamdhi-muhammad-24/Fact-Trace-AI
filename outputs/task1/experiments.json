@@ -1,6 +1,6 @@
 {
   "meta": {
-    "timestamp": "2026-11-12T19:15:30Z",
+    "timestamp": "2026-11-13T23:23:01Z",
     "total_evaluated_instances": 221,
     "total_candidate_pairs": 692,
     "total_biography_topics": 31,
@@ -8,12 +8,12 @@
     "dev_threshold_evaluations": 71581,
     "nested_cv_inner_threshold_evaluations": 327482,
     "total_threshold_evaluations": 399063,
-    "runtime_seconds": 42.52
+    "runtime_seconds": 45.13
   },
   "runtime_benchmarks": {
-    "wall_clock_seconds": 1.2861,
-    "ms_per_fact": 5.82,
-    "throughput_facts_per_sec": 171.8,
+    "wall_clock_seconds": 1.5258,
+    "ms_per_fact": 6.9,
+    "throughput_facts_per_sec": 144.8,
     "provenance": "Live measured evaluation of winning WordRecallThresholdFactChecker on development set (221 facts, CPU)"
   },
   "winning_configuration": {
